@@ -1,0 +1,25 @@
+project_id = "ftikhauhpwphyceoisme"
+
+[functions.chat]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = false
+
+[functions.check-subscription]
+verify_jwt = false
+
+[functions.customer-portal]
+verify_jwt = false
+
+[functions.process-upload]
+verify_jwt = false
+
+[functions.ai-chat]
+verify_jwt = false
+
+[functions.create-checkout-session]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
