@@ -22,7 +22,15 @@ const PotLabsInsights = ({ dataSummary, title = "Pot Labs Intelligence" }: Props
       messages: [
         {
           role: "user",
-          content: `Based on this data summary, provide exactly 4 strategic bullet-point insights. Each should be 1-2 sentences. Format as a numbered list (1. 2. 3. 4.). Be specific with numbers and actionable recommendations.\n\nData:\n${dataSummary}`,
+          content: `Based on this data summary, provide exactly 4 strategic insights. For each, use the What/So What/Now What framework:
+
+WHAT: The specific data finding (exact numbers in ZAR)
+SO WHAT: The strategic implication (connect to mental availability, choice architecture, or competitive position)
+NOW WHAT: The recommended action (specific channel, retailer activation, or creative direction)
+
+Apply Jon Evans' System 1 thinking (emotional resonance, distinctive assets, broad reach), Julian Cole's strategic narrative, and Rory Sutherland's behavioural economics (nudges, reframing, choice architecture). Be specific with South African retailer names and ZAR values. Format as a numbered list (1. 2. 3. 4.).
+
+Data:\n${dataSummary}`,
         },
       ],
       context: "insights",

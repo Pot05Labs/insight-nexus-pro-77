@@ -5,17 +5,7 @@ import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiu
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
 import PotLabsInsights from "@/components/PotLabsInsights";
-import PeriodSelector from "@/components/PeriodSelector";
-import DeltaIndicator from "@/components/DeltaIndicator";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import {
-  type PeriodMode,
-  getPeriodRanges,
-  filterByDateRange,
-  computeDelta,
-  findLatestDate,
-  detectBestPeriodMode,
-} from "@/lib/period-utils";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 
@@ -23,34 +13,16 @@ const RetailersPage = () => {
   const { data, loading } = useSellOutData();
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>("MoM");
-
-  // Auto-detect period mode on first load
-  useMemo(() => {
-    if (data.length > 0) setPeriodMode(detectBestPeriodMode(data));
-  }, [data.length]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(false); }
   };
 
-  const periodRanges = useMemo(() => {
-    const refDate = findLatestDate(data);
-    return getPeriodRanges(refDate, periodMode);
-  }, [data, periodMode]);
-
-  const currentData = useMemo(() => filterByDateRange(data, periodRanges.current), [data, periodRanges]);
-  const previousData = useMemo(() => filterByDateRange(data, periodRanges.previous), [data, periodRanges]);
-
   // Revenue by retailer (all time for chart)
   const revByRetailer = aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
   const chartData = Object.entries(revByRetailer).sort(([, a], [, b]) => b - a)
     .map(([retailer, revenue]) => ({ retailer, revenue: Math.round(revenue) }));
-
-  // Period comparison by retailer
-  const curRevByRetailer = aggregate(currentData, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const prevRevByRetailer = aggregate(previousData, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
 
   // Table data with benchmarking index (100 = average)
   const tableData = useMemo(() => {
@@ -73,7 +45,6 @@ const RetailersPage = () => {
       aov: v.units > 0 ? v.revenue / v.units : 0,
       stores: v.stores.size,
       index: Math.round((v.revenue / avgRevenue) * 100),
-      delta: computeDelta(curRevByRetailer[retailer] ?? 0, prevRevByRetailer[retailer] ?? 0),
     }));
     arr.sort((a, b) => {
       const mul = sortAsc ? 1 : -1;
@@ -81,7 +52,7 @@ const RetailersPage = () => {
       return mul * ((a[sortKey] as number) - (b[sortKey] as number));
     });
     return arr;
-  }, [data, sortKey, sortAsc, curRevByRetailer, prevRevByRetailer]);
+  }, [data, sortKey, sortAsc]);
 
   // Radar data for benchmarking (top 6 retailers, normalized dimensions)
   const radarData = useMemo(() => {
@@ -110,7 +81,7 @@ const RetailersPage = () => {
 
   const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
   const hasData = data.length > 0;
-  const dataSummary = `Retailers: ${chartData.slice(0, 5).map((r) => `${r.retailer} (${fmtZAR(r.revenue)})`).join(", ")}. Total retailers: ${chartData.length}. Period: ${periodRanges.current.label} vs ${periodRanges.previous.label}.`;
+  const dataSummary = `Retailers: ${chartData.slice(0, 5).map((r) => `${r.retailer} (${fmtZAR(r.revenue)})`).join(", ")}. Total retailers: ${chartData.length}. Benchmarking index: ${tableData.slice(0, 3).map((r) => `${r.retailer} index ${r.index}`).join(", ")}.`;
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
   if (!hasData) return <div className="p-8 text-center"><Inbox className="h-10 w-10 mx-auto text-muted-foreground/30 mb-4" /><p className="text-muted-foreground">Upload data to see retailer analytics.</p></div>;
@@ -121,17 +92,10 @@ const RetailersPage = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Retailers</h1>
-          <p className="text-muted-foreground text-sm">Retailer channel performance breakdown.</p>
-        </div>
-        <PeriodSelector value={periodMode} onChange={setPeriodMode} />
+      <div>
+        <h1 className="font-display text-2xl font-bold">Retailers</h1>
+        <p className="text-muted-foreground text-sm">Retailer channel intelligence — distribution effectiveness and choice architecture.</p>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Comparing <span className="font-semibold text-foreground">{periodRanges.current.label}</span> vs <span className="font-semibold text-foreground">{periodRanges.previous.label}</span>
-      </p>
 
       <Card>
         <CardHeader><CardTitle className="font-display text-base">Revenue by Retailer</CardTitle></CardHeader>
@@ -177,7 +141,7 @@ const RetailersPage = () => {
         </Card>
       )}
 
-      {/* Retailer Performance Table with Index and Deltas */}
+      {/* Retailer Performance Table */}
       <Card>
         <CardHeader><CardTitle className="font-display text-base">Retailer Performance</CardTitle></CardHeader>
         <CardContent>
@@ -191,7 +155,6 @@ const RetailersPage = () => {
                   <TableHead className="text-xs text-right">Avg Order Value <SortIcon col="aov" /></TableHead>
                   <TableHead className="text-xs text-right">Stores <SortIcon col="stores" /></TableHead>
                   <TableHead className="text-xs text-right">Index <SortIcon col="index" /></TableHead>
-                  <TableHead className="text-xs text-right">Trend</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -206,9 +169,6 @@ const RetailersPage = () => {
                       <span className={r.index >= 100 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.index >= 80 ? "text-foreground" : "text-red-600 dark:text-red-400"}>
                         {r.index}
                       </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DeltaIndicator delta={r.delta} />
                     </TableCell>
                   </TableRow>
                 ))}

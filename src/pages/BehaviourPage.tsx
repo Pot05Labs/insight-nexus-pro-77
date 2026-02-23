@@ -41,7 +41,12 @@ const BehaviourPage = () => {
     await streamAiChat({
       messages: [{
         role: "user",
-        content: `Based on this commerce data, identify 3-4 distinct customer behavioral segments. For each segment, give a creative name and a 1-sentence description. Format as: **Segment Name**: Description.\n\nData:\n${summary}`,
+        content: `Based on this South African FMCG commerce data, identify 3-4 distinct customer behavioural segments through the lens of behavioural economics (Rory Sutherland). For each segment:
+- Give a creative name that captures the behavioural driver
+- Describe the purchase pattern and the nudges/context effects that influence their buying behaviour
+- Suggest a specific activation strategy using choice architecture, reframing, or contextual nudges (e.g., gondola placement, bundling, social proof, default options)
+
+Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${summary}`,
       }],
       context: "insights",
       onDelta: (t) => { full += t; },
@@ -64,7 +69,7 @@ const BehaviourPage = () => {
     <div className="p-6 lg:p-8 space-y-6">
       <div>
         <h1 className="font-display text-2xl font-bold">Behaviour</h1>
-        <p className="text-muted-foreground text-sm">Sales patterns and customer behavioural analysis.</p>
+        <p className="text-muted-foreground text-sm">Behavioural intelligence — understanding the nudges that drive purchase decisions.</p>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">

@@ -47,7 +47,7 @@ const AnomalyDetectionPanel = ({ data }: AnomalyDetectionPanelProps) => {
     await streamAiChat({
       messages: [{
         role: "user",
-        content: `You are a commerce analytics expert for South African FMCG brands. Analyze these detected anomalies in daily revenue data and provide brief, actionable explanations for each.\n\nAnomalies detected:\n${anomalySummary}\n\nDataset mean: ${fmtZAR(result.mean)}/day, Std Dev: ${fmtZAR(result.stdDev)}, Total data points: ${result.totalPoints} days.\n\nFor each anomaly, suggest what might have caused it (campaigns, seasonal events, promotions, stock issues, retailer actions) and what action to take. Be concise — 1-2 sentences per anomaly.`,
+        content: `You are the Commerce Intelligence Harmoniser for South African FMCG brands. Analyse these detected anomalies using the What/So What/Now What framework.\n\nAnomalies detected:\n${anomalySummary}\n\nDataset mean: ${fmtZAR(result.mean)}/day, Std Dev: ${fmtZAR(result.stdDev)}, Total data points: ${result.totalPoints} days.\n\nFor each anomaly:\n- WHAT happened (the data anomaly with exact numbers in ZAR)\n- SO WHAT it means (campaign impact? retailer action? seasonal effect? choice architecture change? stock issue?)\n- NOW WHAT to do (specific activation, budget shift, creative change, or retailer conversation)\n\nConsider behavioural economics factors: gondola placement changes, promotional mechanics, bundle offers, or context effects that may explain shifts. Be concise — 2-3 sentences per anomaly.`,
       }],
       context: "insights",
       onDelta: (t) => { full += t; setAiExplanation(full); },

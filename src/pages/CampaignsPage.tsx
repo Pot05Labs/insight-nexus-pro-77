@@ -15,16 +15,9 @@ import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, Uplo
 import { Link } from "react-router-dom";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import PotLabsInsights from "@/components/PotLabsInsights";
-import PeriodSelector from "@/components/PeriodSelector";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import { fmtZAR } from "@/hooks/useSellOutData";
 import { useSellOutData } from "@/hooks/useSellOutData";
-import {
-  type PeriodMode,
-  getPeriodRanges,
-  filterCampaignsByDateRange,
-  computeDelta,
-} from "@/lib/period-utils";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 
 type CampaignRow = {
@@ -48,7 +41,6 @@ const CampaignsPage = () => {
   const [platformFilter, setPlatformFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortAsc, setSortAsc] = useState(false);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>("MoM");
   const reportRef = useRef<HTMLDivElement>(null);
   const { data: sellOutData } = useSellOutData();
 
@@ -69,16 +61,6 @@ const CampaignsPage = () => {
   const filtered = platformFilter === "all" ? campaigns : campaigns.filter((c) => c.platform === platformFilter);
   const hasData = campaigns.length > 0;
 
-  // Period comparison
-  const periodRanges = useMemo(() => {
-    const dates = campaigns.map((c) => c.flight_start).filter(Boolean) as string[];
-    const latest = dates.length > 0 ? new Date(dates.sort().at(-1)!) : new Date();
-    return getPeriodRanges(latest, periodMode);
-  }, [campaigns, periodMode]);
-
-  const currentCampaigns = useMemo(() => filterCampaignsByDateRange(filtered, periodRanges.current), [filtered, periodRanges]);
-  const previousCampaigns = useMemo(() => filterCampaignsByDateRange(filtered, periodRanges.previous), [filtered, periodRanges]);
-
   // KPIs
   const totalSpend = filtered.reduce((s, r) => s + Number(r.spend ?? 0), 0);
   const totalImpressions = filtered.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
@@ -88,29 +70,13 @@ const CampaignsPage = () => {
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
-  // Period deltas
-  const curSpend = currentCampaigns.reduce((s, r) => s + Number(r.spend ?? 0), 0);
-  const prevSpend = previousCampaigns.reduce((s, r) => s + Number(r.spend ?? 0), 0);
-  const curImpressions = currentCampaigns.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
-  const prevImpressions = previousCampaigns.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
-  const curClicks = currentCampaigns.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
-  const prevClicks = previousCampaigns.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
-  const curConversions = currentCampaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
-  const prevConversions = previousCampaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
-  const curRevenue = currentCampaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
-  const prevRevenue = previousCampaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
-  const curCTR = curImpressions > 0 ? (curClicks / curImpressions) * 100 : 0;
-  const prevCTR = prevImpressions > 0 ? (prevClicks / prevImpressions) * 100 : 0;
-  const curROAS = curSpend > 0 ? curRevenue / curSpend : 0;
-  const prevROAS = prevSpend > 0 ? prevRevenue / prevSpend : 0;
-
   const kpis = [
-    { label: "Total Ad Spend", value: fmtZAR(totalSpend), icon: Megaphone, delta: computeDelta(curSpend, prevSpend) },
-    { label: "Impressions", value: totalImpressions > 1e6 ? `${(totalImpressions / 1e6).toFixed(1)}M` : totalImpressions > 1000 ? `${(totalImpressions / 1000).toFixed(0)}K` : totalImpressions.toString(), icon: Eye, delta: computeDelta(curImpressions, prevImpressions) },
-    { label: "Clicks", value: totalClicks.toLocaleString(), icon: MousePointerClick, delta: computeDelta(curClicks, prevClicks) },
-    { label: "CTR", value: `${ctr.toFixed(2)}%`, icon: TrendingUp, delta: computeDelta(curCTR, prevCTR) },
-    { label: "Conversions", value: totalConversions.toLocaleString(), icon: Target, delta: computeDelta(curConversions, prevConversions) },
-    { label: "ROAS", value: `${roas.toFixed(1)}x`, icon: DollarSign, delta: computeDelta(curROAS, prevROAS) },
+    { label: "Total Ad Spend", value: fmtZAR(totalSpend), icon: Megaphone },
+    { label: "Impressions", value: totalImpressions > 1e6 ? `${(totalImpressions / 1e6).toFixed(1)}M` : totalImpressions > 1000 ? `${(totalImpressions / 1000).toFixed(0)}K` : totalImpressions.toString(), icon: Eye },
+    { label: "Clicks", value: totalClicks.toLocaleString(), icon: MousePointerClick },
+    { label: "CTR", value: `${ctr.toFixed(2)}%`, icon: TrendingUp },
+    { label: "Conversions", value: totalConversions.toLocaleString(), icon: Target },
+    { label: "ROAS", value: `${roas.toFixed(1)}x`, icon: DollarSign },
   ];
 
   // Performance over time (monthly)
@@ -217,7 +183,7 @@ const CampaignsPage = () => {
     fontSize: "0.75rem",
   };
 
-  const dataSummary = `Campaign Performance: Total Spend ${fmtZAR(totalSpend)}, Impressions ${totalImpressions.toLocaleString()}, Clicks ${totalClicks.toLocaleString()}, CTR ${ctr.toFixed(2)}%, ROAS ${roas.toFixed(1)}x. Platforms: ${platformData.map((p) => `${p.platform}: ${fmtZAR(p.spend)} spend`).join(", ")}. Period: ${periodRanges.current.label} vs ${periodRanges.previous.label}. Campaign Attribution: ${attribution.slice(0, 3).map((a) => `${a.campaign_name}: ${fmtZAR(a.incrementalRevenue)} incremental revenue, ${a.liftPct.toFixed(1)}% lift`).join("; ")}.`;
+  const dataSummary = `Campaign Performance: Total Spend ${fmtZAR(totalSpend)}, Impressions ${totalImpressions.toLocaleString()}, Clicks ${totalClicks.toLocaleString()}, CTR ${ctr.toFixed(2)}%, ROAS ${roas.toFixed(1)}x. Platforms: ${platformData.map((p) => `${p.platform}: ${fmtZAR(p.spend)} spend`).join(", ")}. Campaign Attribution: ${attribution.slice(0, 3).map((a) => `${a.campaign_name}: ${fmtZAR(a.incrementalRevenue)} incremental revenue, ${a.liftPct.toFixed(1)}% lift`).join("; ")}.`;
 
   // Flight calendar helpers
   const allDates = flightData.flatMap((f) => [f.start, f.end].filter(Boolean));
@@ -230,10 +196,9 @@ const CampaignsPage = () => {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold">Campaigns</h1>
-          <p className="text-muted-foreground text-sm">Campaign performance across platforms and flights.</p>
+          <p className="text-muted-foreground text-sm">Campaign attribution — connecting advertising investment to commercial outcomes.</p>
         </div>
         <div className="flex items-center gap-3">
-          {hasData && <PeriodSelector value={periodMode} onChange={setPeriodMode} />}
           {hasData && (
             <Select value={platformFilter} onValueChange={setPlatformFilter}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Platform" /></SelectTrigger>
@@ -246,12 +211,6 @@ const CampaignsPage = () => {
           <ExportPdfButton targetRef={reportRef} filename="Pot-Labs-Campaigns" />
         </div>
       </div>
-
-      {hasData && (
-        <p className="text-xs text-muted-foreground">
-          Comparing <span className="font-semibold text-foreground">{periodRanges.current.label}</span> vs <span className="font-semibold text-foreground">{periodRanges.previous.label}</span>
-        </p>
-      )}
 
       <div ref={reportRef}>
         {loading ? (
@@ -268,7 +227,7 @@ const CampaignsPage = () => {
           </Card>
         ) : (
           <>
-            {/* KPI Cards with deltas */}
+            {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
               {kpis.map((kpi, i) => (
                 <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
@@ -281,56 +240,13 @@ const CampaignsPage = () => {
                         </div>
                       </div>
                       <p className="font-display text-xl font-bold">{kpi.value}</p>
-                      <DeltaIndicator delta={kpi.delta} className="mt-1.5" />
                     </CardContent>
                   </Card>
                 </motion.div>
               ))}
             </div>
 
-            {/* Performance Over Time */}
-            {timeMap.length > 0 && (
-              <Card className="mb-6">
-                <CardHeader><CardTitle className="font-display text-base">Campaign Performance Over Time</CardTitle></CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={timeMap}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="month" className="text-xs fill-muted-foreground" />
-                      <YAxis yAxisId="spend" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <YAxis yAxisId="impressions" orientation="right" className="text-xs fill-muted-foreground" tickFormatter={(v) => v > 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [name === "Impressions" ? v.toLocaleString() : fmtZAR(v), name]} />
-                      <Legend />
-                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Spend" dot={{ r: 2 }} />
-                      <Line yAxisId="spend" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} name="Revenue" dot={{ r: 2 }} />
-                      <Line yAxisId="impressions" dataKey="impressions" stroke="hsl(var(--chart-2))" strokeWidth={1.5} strokeDasharray="4 4" name="Impressions" dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Platform Breakdown */}
-            {platformData.length > 0 && (
-              <Card className="mb-6">
-                <CardHeader><CardTitle className="font-display text-base">Platform Breakdown</CardTitle></CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={platformData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="platform" className="text-xs fill-muted-foreground" />
-                      <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
-                      <Legend />
-                      <Bar dataKey="spend" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Spend" />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Revenue" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Campaign Attribution */}
+            {/* Campaign Attribution — promoted as key feature */}
             {attribution.length > 0 && (
               <Card className="mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Campaign Attribution — Incremental Revenue</CardTitle></CardHeader>
@@ -378,6 +294,48 @@ const CampaignsPage = () => {
                   <p className="text-[10px] text-muted-foreground mt-2">
                     Attribution uses pre-campaign baseline comparison. Incremental Revenue = Flight Revenue - (Daily Baseline x Flight Days). iROAS = Incremental Revenue / Spend.
                   </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Performance Over Time */}
+            {timeMap.length > 0 && (
+              <Card className="mb-6">
+                <CardHeader><CardTitle className="font-display text-base">Campaign Performance Over Time</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={timeMap}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" className="text-xs fill-muted-foreground" />
+                      <YAxis yAxisId="spend" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
+                      <YAxis yAxisId="impressions" orientation="right" className="text-xs fill-muted-foreground" tickFormatter={(v) => v > 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [name === "Impressions" ? v.toLocaleString() : fmtZAR(v), name]} />
+                      <Legend />
+                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Spend" dot={{ r: 2 }} />
+                      <Line yAxisId="spend" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} name="Revenue" dot={{ r: 2 }} />
+                      <Line yAxisId="impressions" dataKey="impressions" stroke="hsl(var(--chart-2))" strokeWidth={1.5} strokeDasharray="4 4" name="Impressions" dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Platform Breakdown */}
+            {platformData.length > 0 && (
+              <Card className="mb-6">
+                <CardHeader><CardTitle className="font-display text-base">Platform Breakdown</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={platformData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="platform" className="text-xs fill-muted-foreground" />
+                      <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
+                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
+                      <Legend />
+                      <Bar dataKey="spend" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Spend" />
+                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Revenue" />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </CardContent>
               </Card>
             )}

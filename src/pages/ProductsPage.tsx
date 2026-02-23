@@ -1,22 +1,12 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import PotLabsInsights from "@/components/PotLabsInsights";
-import PeriodSelector from "@/components/PeriodSelector";
-import DeltaIndicator from "@/components/DeltaIndicator";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import {
-  type PeriodMode,
-  getPeriodRanges,
-  filterByDateRange,
-  computeDelta,
-  findLatestDate,
-  detectBestPeriodMode,
-} from "@/lib/period-utils";
 
 const COLORS = [
   "hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))",
@@ -24,30 +14,17 @@ const COLORS = [
   "hsl(38 80% 60%)", "hsl(262 40% 55%)", "hsl(199 60% 55%)", "hsl(349 55% 60%)",
 ];
 
-type SortKey = "product" | "brand" | "category" | "revenue" | "units" | "avgPrice" | "growth" | "marketShare";
+type SortKey = "product" | "brand" | "category" | "revenue" | "units" | "avgPrice" | "marketShare";
 
 const ProductsPage = () => {
   const { data, loading } = useSellOutData();
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>("MoM");
-
-  useEffect(() => {
-    if (data.length > 0) setPeriodMode(detectBestPeriodMode(data));
-  }, [data.length]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(false); }
   };
-
-  const periodRanges = useMemo(() => {
-    const refDate = findLatestDate(data);
-    return getPeriodRanges(refDate, periodMode);
-  }, [data, periodMode]);
-
-  const currentData = useMemo(() => filterByDateRange(data, periodRanges.current), [data, periodRanges]);
-  const previousData = useMemo(() => filterByDateRange(data, periodRanges.previous), [data, periodRanges]);
 
   // Top 10 products by revenue
   const revByProduct = aggregate(data, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0));
@@ -68,37 +45,29 @@ const ProductsPage = () => {
     return firstWord && firstWord.length > 1 ? firstWord : "Unknown";
   };
 
-  // Brand benchmarking: growth rate and market share
-  const curRevByBrand = aggregate(currentData, inferBrand, (r) => Number(r.revenue ?? 0));
-  const prevRevByBrand = aggregate(previousData, inferBrand, (r) => Number(r.revenue ?? 0));
-  const totalCurRevenue = Object.values(curRevByBrand).reduce((s, v) => s + v, 0);
+  // Brand rankings with market share
+  const revByBrand = aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0));
+  const totalRevenue = Object.values(revByBrand).reduce((s, v) => s + v, 0);
 
-  const brandBenchmark = useMemo(() => {
-    const allBrands = new Set([...Object.keys(curRevByBrand), ...Object.keys(prevRevByBrand)]);
-    const arr = [...allBrands].map((brand) => {
-      const curRev = curRevByBrand[brand] ?? 0;
-      const prevRev = prevRevByBrand[brand] ?? 0;
-      const growth = computeDelta(curRev, prevRev);
-      const marketShare = totalCurRevenue > 0 ? (curRev / totalCurRevenue) * 100 : 0;
-      return { brand, curRev, prevRev, growth, marketShare };
-    });
-    arr.sort((a, b) => b.curRev - a.curRev);
+  const brandRankings = useMemo(() => {
+    const arr = Object.entries(revByBrand).map(([brand, revenue]) => ({
+      brand,
+      revenue,
+      marketShare: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
+    }));
+    arr.sort((a, b) => b.revenue - a.revenue);
     return arr;
-  }, [curRevByBrand, prevRevByBrand, totalCurRevenue]);
+  }, [revByBrand, totalRevenue]);
 
-  // Brand benchmark chart (top 10 brands by current period revenue with growth)
-  const brandChartData = brandBenchmark.slice(0, 10).map((b) => ({
+  // Brand chart data (top 10)
+  const brandChartData = brandRankings.slice(0, 10).map((b) => ({
     brand: b.brand,
-    current: Math.round(b.curRev),
-    previous: Math.round(b.prevRev),
+    revenue: Math.round(b.revenue),
   }));
 
-  // Full product table with growth and market share
+  // Full product table with market share
   const productTable = useMemo(() => {
-    const curRevByProduct = aggregate(currentData, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0));
-    const prevRevByProduct = aggregate(previousData, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0));
-    const totalCurProductRev = Object.values(curRevByProduct).reduce((s, v) => s + v, 0);
-
+    const totalProductRev = data.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
     const map: Record<string, { brand: string; category: string; revenue: number; units: number }> = {};
     data.forEach((r) => {
       const p = r.product_name_raw ?? "Unknown";
@@ -109,8 +78,7 @@ const ProductsPage = () => {
     const arr = Object.entries(map).map(([product, v]) => ({
       product, ...v,
       avgPrice: v.units > 0 ? v.revenue / v.units : 0,
-      growth: computeDelta(curRevByProduct[product] ?? 0, prevRevByProduct[product] ?? 0),
-      marketShare: totalCurProductRev > 0 ? ((curRevByProduct[product] ?? 0) / totalCurProductRev) * 100 : 0,
+      marketShare: totalProductRev > 0 ? (v.revenue / totalProductRev) * 100 : 0,
     }));
 
     arr.sort((a, b) => {
@@ -118,17 +86,16 @@ const ProductsPage = () => {
       if (sortKey === "product") return mul * a.product.localeCompare(b.product);
       if (sortKey === "brand") return mul * a.brand.localeCompare(b.brand);
       if (sortKey === "category") return mul * a.category.localeCompare(b.category);
-      if (sortKey === "growth") return mul * ((a.growth ?? 0) - (b.growth ?? 0));
       if (sortKey === "marketShare") return mul * (a.marketShare - b.marketShare);
       return mul * ((a[sortKey] as number) - (b[sortKey] as number));
     });
     return arr;
-  }, [data, currentData, previousData, sortKey, sortAsc]);
+  }, [data, sortKey, sortAsc]);
 
   const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
   const hasData = data.length > 0;
 
-  const dataSummary = `Top 10 Products: ${top10.map((p) => `${p.name} (${fmtZAR(p.revenue)})`).join(", ")}. Categories: ${categoryData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Brand rankings: ${brandBenchmark.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.curRev)}, ${b.growth !== null ? `${b.growth > 0 ? "+" : ""}${b.growth.toFixed(1)}% growth` : "N/A"}, ${b.marketShare.toFixed(1)}% share)`).join(", ")}. Period: ${periodRanges.current.label} vs ${periodRanges.previous.label}.`;
+  const dataSummary = `Top 10 Products: ${top10.map((p) => `${p.name} (${fmtZAR(p.revenue)})`).join(", ")}. Categories: ${categoryData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Brand rankings: ${brandRankings.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)}, ${b.marketShare.toFixed(1)}% share)`).join(", ")}. Total Revenue: ${fmtZAR(totalRevenue)}.`;
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
   if (!hasData) return <div className="p-8 text-center"><Inbox className="h-10 w-10 mx-auto text-muted-foreground/30 mb-4" /><p className="text-muted-foreground">Upload data to see product analytics.</p></div>;
@@ -139,17 +106,10 @@ const ProductsPage = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Products</h1>
-          <p className="text-muted-foreground text-sm">Product and category performance analysis.</p>
-        </div>
-        <PeriodSelector value={periodMode} onChange={setPeriodMode} />
+      <div>
+        <h1 className="font-display text-2xl font-bold">Products</h1>
+        <p className="text-muted-foreground text-sm">Product and brand performance — market share and mental availability analysis.</p>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Comparing <span className="font-semibold text-foreground">{periodRanges.current.label}</span> vs <span className="font-semibold text-foreground">{periodRanges.previous.label}</span>
-      </p>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Top 10 Products */}
@@ -184,20 +144,18 @@ const ProductsPage = () => {
         </Card>
       </div>
 
-      {/* Brand Benchmarking — Period Comparison */}
+      {/* Top Brands by Revenue */}
       {brandChartData.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="font-display text-base">Brand Benchmarking — Period Comparison</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="font-display text-base">Top Brands by Revenue</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={brandChartData} layout="vertical" margin={{ left: 100 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis type="number" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="brand" className="text-[10px] fill-muted-foreground" width={95} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
-                <Legend />
-                <Bar dataKey="current" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name={periodRanges.current.label} />
-                <Bar dataKey="previous" fill="hsl(var(--chart-3))" radius={[0, 4, 4, 0]} name={periodRanges.previous.label} opacity={0.5} />
+                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Revenue" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -205,9 +163,9 @@ const ProductsPage = () => {
       )}
 
       {/* Brand Rankings Table */}
-      {brandBenchmark.length > 0 && (
+      {brandRankings.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="font-display text-base">Brand Rankings — Growth & Market Share</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="font-display text-base">Brand Rankings — Revenue & Market Share</CardTitle></CardHeader>
           <CardContent>
             <div className="rounded-lg border overflow-auto max-h-[400px]">
               <Table>
@@ -215,22 +173,16 @@ const ProductsPage = () => {
                   <TableRow>
                     <TableHead className="text-xs w-10">#</TableHead>
                     <TableHead className="text-xs">Brand</TableHead>
-                    <TableHead className="text-xs text-right">Current Revenue</TableHead>
-                    <TableHead className="text-xs text-right">Previous Revenue</TableHead>
-                    <TableHead className="text-xs text-right">Growth</TableHead>
+                    <TableHead className="text-xs text-right">Revenue</TableHead>
                     <TableHead className="text-xs text-right">Market Share</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {brandBenchmark.slice(0, 20).map((b, i) => (
+                  {brandRankings.slice(0, 20).map((b, i) => (
                     <TableRow key={i}>
                       <TableCell className="text-sm text-muted-foreground">{i + 1}</TableCell>
                       <TableCell className="text-sm font-medium">{b.brand}</TableCell>
-                      <TableCell className="text-sm text-right font-medium">{fmtZAR(b.curRev)}</TableCell>
-                      <TableCell className="text-sm text-right text-muted-foreground">{fmtZAR(b.prevRev)}</TableCell>
-                      <TableCell className="text-right">
-                        <DeltaIndicator delta={b.growth} />
-                      </TableCell>
+                      <TableCell className="text-sm text-right font-medium">{fmtZAR(b.revenue)}</TableCell>
                       <TableCell className="text-sm text-right">
                         <Badge variant="outline" className="text-[10px] font-semibold">{b.marketShare.toFixed(1)}%</Badge>
                       </TableCell>
@@ -257,7 +209,6 @@ const ProductsPage = () => {
                   <TableHead className="text-xs text-right">Revenue <SortIcon col="revenue" /></TableHead>
                   <TableHead className="text-xs text-right">Units <SortIcon col="units" /></TableHead>
                   <TableHead className="text-xs text-right">Avg Price <SortIcon col="avgPrice" /></TableHead>
-                  <TableHead className="text-xs text-right">Growth <SortIcon col="growth" /></TableHead>
                   <TableHead className="text-xs text-right">Share <SortIcon col="marketShare" /></TableHead>
                 </TableRow>
               </TableHeader>
@@ -270,7 +221,6 @@ const ProductsPage = () => {
                     <TableCell className="text-sm text-right font-medium">{fmtZAR(r.revenue)}</TableCell>
                     <TableCell className="text-sm text-right">{r.units.toLocaleString()}</TableCell>
                     <TableCell className="text-sm text-right">{fmtZAR(r.avgPrice)}</TableCell>
-                    <TableCell className="text-right"><DeltaIndicator delta={r.growth} /></TableCell>
                     <TableCell className="text-sm text-right">{r.marketShare.toFixed(1)}%</TableCell>
                   </TableRow>
                 ))}

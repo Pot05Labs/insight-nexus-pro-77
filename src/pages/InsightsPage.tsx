@@ -49,22 +49,27 @@ const InsightsPage = () => {
     setGenerating(true);
     const dataContext = await buildDataContext();
 
-    const prompt = `You are the Commerce Intelligence Harmoniser by Pot Labs. Generate a comprehensive strategic report based on the following South African FMCG sell-out data. ALL monetary values are in South African Rand (ZAR, use R prefix like R1,000).
+    const prompt = `You are the Commerce Intelligence Harmoniser by Pot Labs. Generate a strategic report that connects advertising spend to commercial outcomes using the following South African FMCG data. ALL monetary values are in South African Rand (ZAR, use R prefix like R1,000).
+
+Apply these strategic frameworks throughout:
+- **System 1 (Jon Evans)**: Assess mental availability, distinctive brand assets, emotional resonance, broad reach vs targeting
+- **What/So What/Now What (Julian Cole)**: Structure each insight as data finding → strategic implication → actionable recommendation
+- **Behavioural Economics (Rory Sutherland)**: Consider choice architecture, nudges, reframing, context effects, and counterintuitive solutions
 
 ${dataContext}
 
 Return your response as valid JSON with this exact structure:
 {
-  "executive_summary": "2-3 sentence executive summary with key findings",
+  "executive_summary": "2-3 sentence strategic narrative: WHAT the data reveals, SO WHAT it means for brand growth, NOW WHAT to prioritise",
   "insights": [
-    { "title": "Short title", "insight": "1-2 sentence insight", "data_point": "Specific metric/number (use R for ZAR)", "implication": "What this means for the business" }
+    { "title": "Short strategic title", "insight": "WHAT the data shows (specific numbers in ZAR)", "data_point": "Key metric (use R for ZAR)", "implication": "SO WHAT this means strategically + NOW WHAT to do about it" }
   ],
   "recommendations": [
-    { "title": "Recommendation title", "description": "Actionable recommendation with specifics" }
+    { "title": "Recommendation title", "description": "Specific actionable recommendation grounded in behavioural economics or System 1 principles — name channels, retailers, budget shifts, or creative direction" }
   ]
 }
 
-Include exactly 3-4 insights and 3 recommendations. Be specific with numbers. Use R prefix for all monetary values (South African Rand). Reference real retailer names from the data.`;
+Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values and South African retailer names. Think like a senior strategist, not just an analyst.`;
 
     let full = "";
     await streamAiChat({
@@ -173,7 +178,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with numbers. Us
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold">AI Insights</h1>
-          <p className="text-muted-foreground text-sm">Commerce Intelligence Harmoniser by Pot Labs</p>
+          <p className="text-muted-foreground text-sm">Strategic Intelligence — powered by System 1 thinking, behavioural economics, and data science.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={generateReport} disabled={generating}>
