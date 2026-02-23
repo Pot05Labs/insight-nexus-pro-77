@@ -21,7 +21,6 @@ import GeographyPage from "./pages/GeographyPage";
 import BehaviourPage from "./pages/BehaviourPage";
 import CampaignsPage from "./pages/CampaignsPage";
 import InsightsPage from "./pages/InsightsPage";
-import QueryPage from "./pages/QueryPage";
 import SettingsPage from "./pages/SettingsPage";
 import PricingPage from "./pages/PricingPage";
 import SubscriptionPaywall from "./components/SubscriptionPaywall";
@@ -56,7 +55,6 @@ const App = () => (
               <Route path="/behaviour" element={<SubscriptionPaywall><BehaviourPage /></SubscriptionPaywall>} />
               <Route path="/campaigns" element={<SubscriptionPaywall><CampaignsPage /></SubscriptionPaywall>} />
               <Route path="/insights" element={<SubscriptionPaywall><InsightsPage /></SubscriptionPaywall>} />
-              <Route path="/query" element={<SubscriptionPaywall><QueryPage /></SubscriptionPaywall>} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/billing" element={<PricingPage />} />
             </Route>

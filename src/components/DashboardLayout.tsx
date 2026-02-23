@@ -10,7 +10,6 @@ import {
   Users,
   Megaphone,
   Zap,
-  MessageSquare,
   ChevronLeft,
   ChevronRight,
   Settings,
@@ -36,7 +35,6 @@ const navItems = [
   { to: "/behaviour", icon: Users, label: "Behaviour" },
   { to: "/campaigns", icon: Megaphone, label: "Campaigns" },
   { to: "/insights", icon: Zap, label: "AI Insights" },
-  { to: "/query", icon: MessageSquare, label: "Query" },
   { to: "/billing", icon: CreditCard, label: "Billing" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
