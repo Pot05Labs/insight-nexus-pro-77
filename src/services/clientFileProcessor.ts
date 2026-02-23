@@ -19,7 +19,11 @@ function norm(s: string): string {
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
-  const n = Number(String(v).replace(/[£$€,\s]/g, ""));
+  // Strip currency symbols (including ZAR "R" prefix), commas, spaces
+  let s = String(v).trim();
+  // Handle "R100,000" or "R 100 000" — strip leading R only when followed by digits/space
+  s = s.replace(/^R\s*/i, "");
+  const n = Number(s.replace(/[£$€,\s]/g, ""));
   return isNaN(n) ? null : n;
 }
 
@@ -41,20 +45,29 @@ function parseDate(v: unknown): string | null {
 /* ------------------------------------------------------------------ */
 
 const SELL_OUT_ALIASES: Record<string, string[]> = {
-  date: ["date", "week", "period", "month", "day", "report_date", "sale_date", "transaction_date", "order_date", "invoice_date"],
-  product_name_raw: ["product", "product_name", "product_name_raw", "item", "description", "product_description", "item_name", "title", "product_title", "item_description"],
-  sku: ["sku", "sku_code", "ean", "barcode", "upc", "asin", "product_code", "item_code", "article", "article_code", "material", "material_code"],
-  retailer: ["retailer", "channel", "store", "marketplace", "outlet", "account", "customer", "store_name", "account_name", "partner"],
-  store_location: ["store_location", "location", "store_loc", "outlet_location"],
-  region: ["region", "area", "territory", "geo", "geography", "market"],
-  category: ["category", "product_category", "cat", "segment", "product_group"],
+  date: ["date", "date_delivery", "date delivery", "delivery_date", "delivery date", "delivery_day",
+    "week", "period", "month", "day", "report_date", "sale_date", "transaction_date", "order_date", "invoice_date"],
+  product_name_raw: ["product", "product_name", "product_name_raw", "item", "description",
+    "product_description", "item_name", "title", "product_title", "item_description"],
+  sku: ["sku", "sku/subs sku", "sku_code", "subs_sku", "ean", "barcode", "upc", "asin",
+    "product_code", "item_code", "article", "article_code", "material", "material_code"],
+  retailer: ["retailer", "vendor", "channel", "store", "marketplace", "outlet", "account",
+    "customer", "store_name", "account_name", "partner", "supplier"],
+  store_location: ["store_location", "location", "store_loc", "outlet_location", "branch", "site"],
+  region: ["region", "area", "territory", "geo", "geography", "market", "province"],
+  category: ["category", "product_category", "cat", "segment", "product_group", "department"],
   brand: ["brand", "brand_name", "manufacturer"],
-  sub_brand: ["sub_brand", "subbrand", "sub_brand_name", "variant"],
+  sub_brand: ["sub_brand", "subbrand", "sub_brand_name", "variant", "subs product", "subs_product"],
   format_size: ["format_size", "format", "size", "pack_size", "pack", "packaging"],
-  revenue: ["revenue", "sales", "total_sales", "net_sales", "gross_sales", "sales_value", "ordered_value", "amount", "value", "turnover", "net_revenue", "gross_revenue", "total_value"],
-  units_sold: ["units", "units_sold", "qty", "quantity", "volume", "units_ordered", "qty_sold", "sold_qty", "total_units"],
-  units_supplied: ["units_supplied", "supplied", "supply_qty", "qty_supplied", "delivered", "units_delivered"],
+  revenue: ["revenue", "sales", "total_sales", "net_sales", "gross_sales", "sales_value",
+    "ordered_value", "ordered value", "merchandise_sales", "merchandise sales",
+    "amount", "value", "turnover", "net_revenue", "gross_revenue", "total_value"],
+  units_sold: ["units", "units_sold", "qty", "quantity", "volume", "units_ordered",
+    "ordered_qty", "ordered qty", "qty_sold", "sold_qty", "total_units"],
+  units_supplied: ["units_supplied", "supplied", "supply_qty", "qty_supplied",
+    "supplied_qty", "supplied qty", "delivered", "units_delivered"],
   cost: ["cost", "cogs", "cost_of_goods", "unit_cost", "total_cost", "cost_value", "cost_price"],
+  order_id: ["order_id", "order id", "mainorderid", "main_order_id", "transaction_id", "invoice_id", "invoice_no"],
 };
 
 const CAMPAIGN_ALIASES: Record<string, string[]> = {
@@ -79,7 +92,9 @@ const SELL_OUT_SIGNALS = [
   "upc", "asin", "cogs", "returns", "units_delivered", "sell_out",
   "qty_sold", "sold_qty", "gross_sales", "net_sales", "turnover",
   "store_location", "region", "category", "brand", "sub_brand", "format_size",
-  "ordered_value", "units_ordered",
+  "ordered_value", "units_ordered", "ordered_qty", "supplied_qty",
+  "vendor", "date_delivery", "delivery_date", "merchandise_sales",
+  "subs_product", "subs_sku", "mainorderid", "province", "department",
 ];
 
 const CAMPAIGN_SIGNALS = [
@@ -155,7 +170,7 @@ function parseXLSXBuffer(buffer: ArrayBuffer): ParsedFileResult {
 
 async function parsePPTXBlob(blob: Blob): Promise<ParsedFileResult> {
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-  const allRows: string[][] = [];
+  const domParser = new DOMParser();
 
   const slideFiles = Object.keys(zip.files)
     .filter(name => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
@@ -165,37 +180,97 @@ async function parsePPTXBlob(blob: Blob): Promise<ParsedFileResult> {
       return na - nb;
     });
 
-  const domParser = new DOMParser();
-
+  // ── Strategy 1: Extract <a:tbl> table elements ──
+  const tableRows: string[][] = [];
   for (const slidePath of slideFiles) {
     const xml = await zip.files[slidePath].async("text");
     const doc = domParser.parseFromString(xml, "application/xml");
-
     const tables = doc.getElementsByTagName("a:tbl");
     for (let t = 0; t < tables.length; t++) {
-      const tbl = tables[t];
-      const trs = tbl.getElementsByTagName("a:tr");
+      const trs = tables[t].getElementsByTagName("a:tr");
       for (let r = 0; r < trs.length; r++) {
-        const tr = trs[r];
-        const tcs = tr.getElementsByTagName("a:tc");
+        const tcs = trs[r].getElementsByTagName("a:tc");
         const cells: string[] = [];
         for (let c = 0; c < tcs.length; c++) {
           const textNodes = tcs[c].getElementsByTagName("a:t");
           const parts: string[] = [];
-          for (let n = 0; n < textNodes.length; n++) {
-            parts.push(textNodes[n].textContent?.trim() ?? "");
-          }
+          for (let n = 0; n < textNodes.length; n++) parts.push(textNodes[n].textContent?.trim() ?? "");
           cells.push(parts.join(" ").trim());
         }
-        if (cells.length > 0 && cells.some(c => c !== "")) allRows.push(cells);
+        if (cells.length > 0 && cells.some(c => c !== "")) tableRows.push(cells);
       }
     }
   }
 
-  if (allRows.length < 2) {
-    throw new Error("No data tables found in this PowerPoint file. Tables in slides are required for data extraction.");
+  if (tableRows.length >= 2) {
+    return rowsToResult(tableRows);
   }
 
+  // ── Strategy 2: Extract chart data from ppt/charts/*.xml ──
+  const chartFiles = Object.keys(zip.files)
+    .filter(name => /^ppt\/charts\/chart\d*\.xml$/i.test(name))
+    .sort();
+
+  for (const chartPath of chartFiles) {
+    const xml = await zip.files[chartPath].async("text");
+    const doc = domParser.parseFromString(xml, "application/xml");
+    const result = extractChartData(doc);
+    if (result && result.headers.length >= 2 && result.rows.length >= 1) {
+      return result;
+    }
+  }
+
+  // ── Strategy 3: Extract embedded Excel spreadsheets ──
+  const embeddedXlsx = Object.keys(zip.files)
+    .filter(name => /\.(xlsx|xls)$/i.test(name));
+  for (const xlsxPath of embeddedXlsx) {
+    try {
+      const buffer = await zip.files[xlsxPath].async("arraybuffer");
+      const result = parseXLSXBuffer(buffer);
+      if (result.headers.length >= 2 && result.rows.length >= 1) return result;
+    } catch { /* skip corrupt embeds */ }
+  }
+
+  // ── Strategy 4: Key-Value pair extraction from text boxes ──
+  // Handles campaign PCA reports where data is "Metric: Value" in text shapes
+  const kvResult = await extractKeyValueDataAsync(zip, slideFiles, domParser);
+  if (kvResult && kvResult.headers.length >= 2 && kvResult.rows.length >= 1) {
+    return kvResult;
+  }
+
+  // ── Strategy 5: Extract all text from shapes, group by position ──
+  const shapeResult = await extractTextFromShapes(zip, slideFiles, domParser);
+  if (shapeResult && shapeResult.headers.length >= 2 && shapeResult.rows.length >= 1) {
+    return shapeResult;
+  }
+
+  // ── Strategy 6: Flat text extraction (all text from all slides, line by line) ──
+  const allText: string[] = [];
+  for (const slidePath of slideFiles) {
+    const xml = await zip.files[slidePath].async("text");
+    const doc = domParser.parseFromString(xml, "application/xml");
+    const textNodes = doc.getElementsByTagName("a:t");
+    const slideTexts: string[] = [];
+    for (let i = 0; i < textNodes.length; i++) {
+      const t = textNodes[i].textContent?.trim();
+      if (t) slideTexts.push(t);
+    }
+    if (slideTexts.length > 0) allText.push(slideTexts.join("\t"));
+  }
+
+  if (allText.length >= 2) {
+    return parseDelimitedLines(allText);
+  }
+
+  throw new Error(
+    "Could not extract structured data from this PowerPoint file. " +
+    "The file may contain only images, charts without data, or free-form text. " +
+    "Try exporting the data as CSV or XLSX for best results."
+  );
+}
+
+/** Convert raw row arrays (first row = headers) into ParsedFileResult */
+function rowsToResult(allRows: string[][]): ParsedFileResult {
   const headers = allRows[0];
   const dataRows = allRows.slice(1).map(row => {
     const obj: Record<string, unknown> = {};
@@ -203,6 +278,440 @@ async function parsePPTXBlob(blob: Blob): Promise<ParsedFileResult> {
     return obj;
   });
   return { headers, rows: dataRows };
+}
+
+/** Extract data series from OOXML chart XML */
+function extractChartData(doc: Document): ParsedFileResult | null {
+  // Try plotArea → series extraction
+  const series = doc.getElementsByTagName("c:ser");
+  if (series.length === 0) return null;
+
+  // Collect category labels (X axis)
+  let categories: string[] = [];
+  const catRefs = doc.getElementsByTagName("c:cat");
+  if (catRefs.length > 0) {
+    const strCache = catRefs[0].getElementsByTagName("c:strCache")[0]
+      ?? catRefs[0].getElementsByTagName("c:numCache")[0];
+    if (strCache) {
+      const pts = strCache.getElementsByTagName("c:pt");
+      categories = Array.from({ length: pts.length }, (_, i) => {
+        const v = pts[i]?.getElementsByTagName("c:v")[0]?.textContent?.trim();
+        return v ?? `Item ${i + 1}`;
+      });
+    }
+  }
+
+  if (categories.length === 0) return null;
+
+  // Collect each series' name and values
+  const seriesData: { name: string; values: string[] }[] = [];
+  for (let s = 0; s < series.length; s++) {
+    const ser = series[s];
+    // Series name
+    const txEl = ser.getElementsByTagName("c:tx")[0];
+    let serName = `Series ${s + 1}`;
+    if (txEl) {
+      const strRef = txEl.getElementsByTagName("c:strCache")[0];
+      if (strRef) {
+        const v = strRef.getElementsByTagName("c:v")[0]?.textContent?.trim();
+        if (v) serName = v;
+      }
+      const vEl = txEl.getElementsByTagName("c:v")[0];
+      if (vEl?.textContent?.trim()) serName = vEl.textContent.trim();
+    }
+
+    // Series values
+    const valRefs = ser.getElementsByTagName("c:val")[0]
+      ?? ser.getElementsByTagName("c:yVal")[0];
+    const values: string[] = [];
+    if (valRefs) {
+      const numCache = valRefs.getElementsByTagName("c:numCache")[0];
+      if (numCache) {
+        const pts = numCache.getElementsByTagName("c:pt");
+        for (let p = 0; p < pts.length; p++) {
+          values.push(pts[p].getElementsByTagName("c:v")[0]?.textContent?.trim() ?? "");
+        }
+      }
+    }
+    seriesData.push({ name: serName, values });
+  }
+
+  if (seriesData.length === 0) return null;
+
+  // Build tabular result: first column = categories, then one column per series
+  const headers = ["Category", ...seriesData.map(s => s.name)];
+  const rows: Record<string, unknown>[] = categories.map((cat, i) => {
+    const obj: Record<string, unknown> = { Category: cat };
+    seriesData.forEach(s => { obj[s.name] = s.values[i] ?? null; });
+    return obj;
+  });
+
+  return { headers, rows };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Key-Value Pair extraction for campaign PCA decks                   */
+/* ------------------------------------------------------------------ */
+
+// Known metric aliases → canonical column names (campaign-focused)
+const KV_METRIC_MAP: Record<string, string> = {
+  // Spend
+  "spend": "spend", "media spend": "spend", "ad spend": "spend", "total spend": "spend",
+  "budget": "spend", "investment": "spend", "media cost": "spend", "cost": "spend",
+  // Impressions
+  "impressions": "impressions", "imps": "impressions", "total impressions": "impressions",
+  // Clicks
+  "clicks": "clicks", "link clicks": "clicks", "total clicks": "clicks",
+  // CTR
+  "ctr": "ctr", "click through rate": "ctr", "click-through rate": "ctr",
+  // CPM
+  "cpm": "cpm", "cost per mille": "cpm", "cost per 1000": "cpm",
+  // CPC
+  "cpc": "cpc", "cost per click": "cpc",
+  // Sales / Revenue
+  "sales": "revenue", "revenue": "revenue", "total sales": "revenue",
+  "sales value": "revenue", "total revenue": "revenue", "purchase value": "revenue",
+  "attributed revenue": "revenue", "attributed sales": "revenue",
+  // Orders / Conversions
+  "orders": "conversions", "conversions": "conversions", "purchases": "conversions",
+  "total orders": "conversions", "total conversions": "conversions",
+  // Units
+  "units": "units_sold", "units sold": "units_sold", "total units": "units_sold",
+  "quantity": "units_sold", "qty": "units_sold",
+  // AOV
+  "aov": "aov", "average order value": "aov", "avg order value": "aov",
+  // ROAS
+  "roas": "roas", "return on ad spend": "roas",
+  // Reach
+  "reach": "reach", "total reach": "reach",
+  // Frequency
+  "frequency": "frequency", "avg frequency": "frequency",
+  // Engagement
+  "engagements": "engagements", "engagement rate": "engagement_rate",
+  // Video
+  "video views": "video_views", "views": "video_views",
+  "view rate": "view_rate", "vtr": "view_rate",
+  // CPO / CPS
+  "cpo": "cpo", "cost per order": "cpo",
+  "cps": "cps", "cost per sale": "cps",
+};
+
+// Month names for period detection
+const MONTH_NAMES = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+  "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+];
+
+const QUARTER_RE = /^q[1-4]\s*\d{2,4}$/i;
+const WEEK_RE = /^week\s*\d+/i;
+const DATE_RANGE_RE = /^\d{1,2}[\s/-]\w+[\s/-]\d{2,4}\s*([-–—to]+)\s*\d{1,2}[\s/-]\w+[\s/-]\d{2,4}$/i;
+
+/**
+ * Extract key-value pair data from text boxes in PPTX slides.
+ * Handles campaign PCA reports where metrics are "Spend: R100,000" etc.
+ * Each slide with enough KV data becomes one row.
+ */
+async function extractKeyValueDataAsync(
+  zip: JSZip,
+  slideFiles: string[],
+  domParser: DOMParser,
+): Promise<ParsedFileResult | null> {
+  const slideRows: { period: string; campaign: string; metrics: Record<string, string> }[] = [];
+
+  for (const slidePath of slideFiles) {
+    const xml = await zip.files[slidePath].async("text");
+    const doc = domParser.parseFromString(xml, "application/xml");
+
+    // Collect all paragraphs from all shapes on this slide
+    const allParagraphTexts: string[] = [];
+    let slideTitle = "";
+
+    const shapes = doc.getElementsByTagName("p:sp");
+    for (let s = 0; s < shapes.length; s++) {
+      const sp = shapes[s];
+
+      // Check if this is a title shape
+      const phEl = sp.getElementsByTagName("p:ph")[0];
+      const isTitle = phEl?.getAttribute("type") === "title" || phEl?.getAttribute("type") === "ctrTitle";
+
+      // Extract text, splitting on both <a:p> paragraphs AND <a:br> line breaks
+      const txBody = sp.getElementsByTagName("p:txBody")[0];
+      if (!txBody) continue;
+
+      const paragraphs = txBody.getElementsByTagName("a:p");
+      for (let p = 0; p < paragraphs.length; p++) {
+        // Walk child nodes of <a:p> to respect <a:br> line breaks
+        const lines: string[] = [];
+        let currentLine: string[] = [];
+
+        const children = paragraphs[p].childNodes;
+        for (let ci = 0; ci < children.length; ci++) {
+          const child = children[ci];
+          const tagName = (child as Element).tagName ?? child.nodeName;
+
+          if (tagName === "a:br") {
+            // Line break — flush current line
+            const text = currentLine.join("").trim();
+            if (text) lines.push(text);
+            currentLine = [];
+          } else if (tagName === "a:r") {
+            // Run — extract text
+            const tNodes = (child as Element).getElementsByTagName("a:t");
+            for (let ti = 0; ti < tNodes.length; ti++) {
+              currentLine.push(tNodes[ti].textContent ?? "");
+            }
+          }
+        }
+        // Flush last line
+        const lastText = currentLine.join("").trim();
+        if (lastText) lines.push(lastText);
+
+        for (const lineText of lines) {
+          allParagraphTexts.push(lineText);
+          if (isTitle && !slideTitle) slideTitle = lineText;
+        }
+      }
+    }
+
+    if (allParagraphTexts.length === 0) continue;
+
+    // Parse key-value pairs from paragraphs
+    const metrics: Record<string, string> = {};
+    let period = "";
+    let campaign = slideTitle;
+
+    for (const line of allParagraphTexts) {
+      // Try "Key: Value" pattern — only short keys (metric labels, not narrative sentences)
+      const kvMatch = line.match(/^([^:]{1,40}):\s*(.+)$/);
+      if (kvMatch) {
+        const rawKey = kvMatch[1].trim().toLowerCase();
+        const rawValue = kvMatch[2].trim();
+
+        // Skip if key looks like narrative text (too many words = likely a sentence)
+        const keyWordCount = rawKey.split(/\s+/).length;
+        if (keyWordCount > 5) continue;
+
+        // Check if this is a known metric
+        const canonical = KV_METRIC_MAP[rawKey];
+        if (canonical) {
+          metrics[canonical] = rawValue;
+          continue;
+        }
+
+        // Check for special keys
+        if (rawKey === "benchmarks" || rawKey === "benchmark") {
+          metrics["benchmark"] = rawValue;
+          continue;
+        }
+        if (rawKey === "platform" || rawKey === "channel" || rawKey === "media") {
+          metrics["platform"] = rawValue;
+          continue;
+        }
+        if (rawKey === "campaign" || rawKey === "campaign name") {
+          campaign = rawValue;
+          continue;
+        }
+        if (rawKey === "period" || rawKey === "flight" || rawKey === "date" || rawKey === "month") {
+          period = rawValue;
+          continue;
+        }
+        if (rawKey === "brand" || rawKey === "product") {
+          metrics["brand"] = rawValue;
+          continue;
+        }
+        if (rawKey === "retailer" || rawKey === "partner") {
+          metrics["retailer"] = rawValue;
+          continue;
+        }
+      }
+
+      // Detect standalone period identifiers (month names, quarters, etc.)
+      const lineLower = line.toLowerCase().trim();
+      if (!period) {
+        if (MONTH_NAMES.some(m => lineLower === m || lineLower.match(new RegExp(`^${m}\\s+\\d{2,4}$`)))) {
+          period = line.trim();
+        } else if (QUARTER_RE.test(lineLower) || WEEK_RE.test(lineLower) || DATE_RANGE_RE.test(line.trim())) {
+          period = line.trim();
+        }
+      }
+    }
+
+    // Only add this slide if we found at least 2 metrics
+    if (Object.keys(metrics).length >= 2) {
+      slideRows.push({ period, campaign, metrics });
+    }
+  }
+
+  if (slideRows.length === 0) return null;
+
+  // Build unified header set from all slides
+  const allMetricKeys = new Set<string>();
+  for (const row of slideRows) {
+    for (const key of Object.keys(row.metrics)) allMetricKeys.add(key);
+  }
+
+  // Construct headers: period, campaign_name, then all metric columns
+  const headers: string[] = [];
+  if (slideRows.some(r => r.period)) headers.push("period");
+  if (slideRows.some(r => r.campaign)) headers.push("campaign_name");
+
+  // Sort metric keys to put the most important ones first
+  const metricOrder = [
+    "spend", "impressions", "clicks", "ctr", "cpm", "cpc",
+    "revenue", "conversions", "units_sold", "roas", "aov",
+    "reach", "frequency", "video_views", "view_rate",
+    "engagements", "engagement_rate", "cpo", "cps",
+    "benchmark", "platform", "brand", "retailer",
+  ];
+  const sortedMetrics = [...allMetricKeys].sort((a, b) => {
+    const ai = metricOrder.indexOf(a);
+    const bi = metricOrder.indexOf(b);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+  headers.push(...sortedMetrics);
+
+  // Build rows
+  const rows: Record<string, unknown>[] = slideRows.map(sr => {
+    const obj: Record<string, unknown> = {};
+    if (headers.includes("period")) obj["period"] = sr.period || null;
+    if (headers.includes("campaign_name")) obj["campaign_name"] = sr.campaign || null;
+    for (const key of sortedMetrics) {
+      obj[key] = sr.metrics[key] ?? null;
+    }
+    return obj;
+  });
+
+  return { headers, rows };
+}
+
+/** Extract text from shapes using position data to reconstruct table layout */
+async function extractTextFromShapes(
+  zip: JSZip,
+  slideFiles: string[],
+  domParser: DOMParser,
+): Promise<ParsedFileResult | null> {
+  // Collect all text items with approximate positions across all slides
+  const allItems: { slideIdx: number; x: number; y: number; text: string }[] = [];
+
+  for (let si = 0; si < slideFiles.length; si++) {
+    const xml = await zip.files[slideFiles[si]].async("text");
+    const doc = domParser.parseFromString(xml, "application/xml");
+
+    // Find all shape trees — shapes live inside <p:spTree>
+    const shapes = doc.getElementsByTagName("p:sp");
+    for (let s = 0; s < shapes.length; s++) {
+      const sp = shapes[s];
+
+      // Get position from <a:off x="..." y="..."/>
+      const offEl = sp.getElementsByTagName("a:off")[0];
+      const x = offEl ? parseInt(offEl.getAttribute("x") ?? "0", 10) : 0;
+      const y = offEl ? parseInt(offEl.getAttribute("y") ?? "0", 10) : 0;
+
+      // Get all text in this shape
+      const textNodes = sp.getElementsByTagName("a:t");
+      const parts: string[] = [];
+      for (let t = 0; t < textNodes.length; t++) {
+        const txt = textNodes[t].textContent?.trim();
+        if (txt) parts.push(txt);
+      }
+      const fullText = parts.join(" ").trim();
+      if (fullText) {
+        allItems.push({ slideIdx: si, x, y, text: fullText });
+      }
+    }
+  }
+
+  if (allItems.length < 4) return null; // Need at least a few cells
+
+  // Group by slide, then by Y-coordinate (with tolerance) to form rows
+  const slideGroups = new Map<number, typeof allItems>();
+  for (const item of allItems) {
+    const list = slideGroups.get(item.slideIdx) ?? [];
+    list.push(item);
+    slideGroups.set(item.slideIdx, list);
+  }
+
+  const allRows: string[][] = [];
+
+  for (const [, items] of slideGroups) {
+    // Cluster Y coordinates with tolerance (EMUs — 914400 per inch, ~100000 tolerance for same row)
+    const yTolerance = 150000;
+    const sorted = items.sort((a, b) => a.y - b.y || a.x - b.x);
+
+    const yBuckets: { y: number; items: typeof items }[] = [];
+    for (const item of sorted) {
+      const bucket = yBuckets.find(b => Math.abs(b.y - item.y) < yTolerance);
+      if (bucket) {
+        bucket.items.push(item);
+      } else {
+        yBuckets.push({ y: item.y, items: [item] });
+      }
+    }
+
+    // Each Y-bucket is a row; sort cells left-to-right
+    for (const bucket of yBuckets) {
+      const cells = bucket.items.sort((a, b) => a.x - b.x).map(i => i.text);
+      if (cells.length >= 2) allRows.push(cells);
+    }
+  }
+
+  if (allRows.length < 2) return null;
+
+  // Normalise: find the most common column count
+  const colCounts = allRows.map(r => r.length);
+  const modeCount = colCounts.sort((a, b) =>
+    colCounts.filter(v => v === a).length - colCounts.filter(v => v === b).length
+  ).pop() ?? 0;
+
+  // Keep only rows matching the mode column count (±1)
+  const filteredRows = allRows.filter(r => Math.abs(r.length - modeCount) <= 1);
+  if (filteredRows.length < 2) return null;
+
+  // Pad or trim rows to match header length
+  const headerLen = filteredRows[0].length;
+  const normalised = filteredRows.map(r => {
+    if (r.length === headerLen) return r;
+    if (r.length > headerLen) return r.slice(0, headerLen);
+    return [...r, ...Array(headerLen - r.length).fill("")];
+  });
+
+  return rowsToResult(normalised);
+}
+
+/** Parse tab-delimited or multi-space-delimited lines into result */
+function parseDelimitedLines(lines: string[]): ParsedFileResult {
+  const firstLine = lines[0];
+  let separator: string | RegExp;
+  if (firstLine.includes("\t")) separator = "\t";
+  else if (firstLine.includes("|")) separator = "|";
+  else separator = /\s{2,}/;
+
+  const headers = (typeof separator === "string"
+    ? firstLine.split(separator)
+    : firstLine.split(separator)
+  ).map(h => h.trim()).filter(h => h.length > 0);
+
+  if (headers.length < 2) {
+    throw new Error("Could not detect column structure. Try CSV or XLSX format.");
+  }
+
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = (typeof separator === "string"
+      ? lines[i].split(separator)
+      : lines[i].split(separator)
+    ).map(c => c.trim());
+    if (cells.length < Math.max(2, headers.length - 2) || cells.length > headers.length + 2) continue;
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, idx) => { obj[h] = cells[idx] ?? null; });
+    rows.push(obj);
+  }
+
+  if (rows.length === 0) {
+    throw new Error("Extracted headers but no data rows matched. Try CSV or XLSX.");
+  }
+  return { headers, rows };
 }
 
 /**

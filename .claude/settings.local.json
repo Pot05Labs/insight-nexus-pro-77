@@ -13,7 +13,9 @@
       "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main show HEAD:src/lib/period-utils.ts)",
       "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main log --oneline -5)",
       "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main show HEAD --stat)",
-      "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main diff --name-only HEAD -- src/)"
+      "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main diff --name-only HEAD -- src/)",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)"
     ]
   }
 }
