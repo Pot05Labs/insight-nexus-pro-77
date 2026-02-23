@@ -59,9 +59,18 @@ const ProductsPage = () => {
   const categoryData = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
     .map(([name, value]) => ({ name, value: Math.round(value) }));
 
+  // Brand inference: extract from product name if brand field is null
+  const inferBrand = (r: typeof data[0]): string => {
+    if (r.brand) return r.brand;
+    const name = r.product_name_raw?.trim();
+    if (!name) return r.retailer ?? "Unknown";
+    const firstWord = name.split(/\s+/)[0];
+    return firstWord && firstWord.length > 1 ? firstWord : "Unknown";
+  };
+
   // Brand benchmarking: growth rate and market share
-  const curRevByBrand = aggregate(currentData, (r) => r.brand ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const prevRevByBrand = aggregate(previousData, (r) => r.brand ?? "Unknown", (r) => Number(r.revenue ?? 0));
+  const curRevByBrand = aggregate(currentData, inferBrand, (r) => Number(r.revenue ?? 0));
+  const prevRevByBrand = aggregate(previousData, inferBrand, (r) => Number(r.revenue ?? 0));
   const totalCurRevenue = Object.values(curRevByBrand).reduce((s, v) => s + v, 0);
 
   const brandBenchmark = useMemo(() => {
@@ -93,7 +102,7 @@ const ProductsPage = () => {
     const map: Record<string, { brand: string; category: string; revenue: number; units: number }> = {};
     data.forEach((r) => {
       const p = r.product_name_raw ?? "Unknown";
-      if (!map[p]) map[p] = { brand: r.brand ?? "—", category: r.category ?? "—", revenue: 0, units: 0 };
+      if (!map[p]) map[p] = { brand: inferBrand(r), category: r.category ?? "—", revenue: 0, units: 0 };
       map[p].revenue += Number(r.revenue ?? 0);
       map[p].units += Number(r.units_sold ?? 0);
     });

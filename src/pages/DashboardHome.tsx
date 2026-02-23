@@ -60,10 +60,14 @@ const DashboardHome = () => {
 
   const fetchCampaigns = async () => {
     setCampaignLoading(true);
-    const { data: cd } = await supabase
+    // Scope campaigns to the same project as sell-out data
+    const { data: projects } = await supabase.from("projects").select("id").limit(1);
+    const projectId = projects?.[0]?.id;
+    let query = supabase
       .from("campaign_data_v2")
-      .select("flight_start,platform,campaign_name,spend,impressions,clicks,conversions,revenue")
-      .limit(1000);
+      .select("flight_start,platform,campaign_name,spend,impressions,clicks,conversions,revenue");
+    if (projectId) query = query.eq("project_id", projectId);
+    const { data: cd } = await query.limit(5000);
     setCampaigns(cd ?? []);
     setCampaignLoading(false);
   };
@@ -151,8 +155,17 @@ const DashboardHome = () => {
     { label: "CPC", value: fmtZAR(cpc), icon: DollarSign, delta: computeDelta(curCPC, prevCPC), invertColor: true },
   ];
 
-  // Top products by brand
-  const revByBrand = aggregate(data, (r) => r.brand ?? "Unknown", (r) => Number(r.revenue ?? 0));
+  // Top products by brand — fallback: extract brand from product_name_raw if brand field is null
+  const inferBrand = (r: typeof data[0]): string => {
+    if (r.brand) return r.brand;
+    // Try to extract brand from product name: typically the first word/phrase
+    const name = r.product_name_raw?.trim();
+    if (!name) return r.retailer ?? "Unknown";
+    // Take the first word as brand (covers "Clorets", "Oreo", "Halls", "Cadbury" etc.)
+    const firstWord = name.split(/\s+/)[0];
+    return firstWord && firstWord.length > 1 ? firstWord : "Unknown";
+  };
+  const revByBrand = aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0));
   const brandData = Object.entries(revByBrand)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 10)

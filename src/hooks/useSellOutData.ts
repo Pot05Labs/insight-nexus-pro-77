@@ -31,7 +31,7 @@ export function useSellOutData() {
 
     const { data: rows } = await supabase
       .from("sell_out_data")
-      .select("*")
+      .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
       .eq("project_id", projectId)
       .order("date", { ascending: true });
 

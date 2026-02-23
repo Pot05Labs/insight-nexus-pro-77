@@ -39,10 +39,21 @@ const GeographyPage = () => {
   const storeData = Object.entries(revByStore).sort(([, a], [, b]) => b - a).slice(0, 5)
     .map(([store, revenue]) => ({ store, revenue: Math.round(revenue) }));
 
+  // Infer region: use region field, or extract area from store_location ("Makro - Strubens Valley" → "Strubens Valley")
+  const inferRegion = (r: typeof data[0]): string => {
+    if (r.region) return r.region;
+    const loc = r.store_location?.trim();
+    if (!loc) return "Unknown";
+    // Extract area after dash (e.g., "Makro - Silver Lakes" → "Silver Lakes")
+    const dashIdx = loc.indexOf(" - ");
+    if (dashIdx !== -1) return loc.slice(dashIdx + 3).trim() || loc;
+    return loc;
+  };
+
   // Revenue by province/region
-  const revByRegion = aggregate(data, (r) => r.region ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const curRevByRegion = aggregate(currentData, (r) => r.region ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const prevRevByRegion = aggregate(previousData, (r) => r.region ?? "Unknown", (r) => Number(r.revenue ?? 0));
+  const revByRegion = aggregate(data, inferRegion, (r) => Number(r.revenue ?? 0));
+  const curRevByRegion = aggregate(currentData, inferRegion, (r) => Number(r.revenue ?? 0));
+  const prevRevByRegion = aggregate(previousData, inferRegion, (r) => Number(r.revenue ?? 0));
 
   const regionData = Object.entries(revByRegion).sort(([, a], [, b]) => b - a)
     .map(([region, revenue]) => ({
@@ -60,7 +71,7 @@ const GeographyPage = () => {
   }));
 
   // Province performance table with deltas
-  const unitsByRegion = aggregate(data, (r) => r.region ?? "Unknown", (r) => Number(r.units_sold ?? 0));
+  const unitsByRegion = aggregate(data, inferRegion, (r) => Number(r.units_sold ?? 0));
   const provinceTable = regionData.map((r) => ({
     region: r.region,
     revenue: r.revenue,
