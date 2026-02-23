@@ -56,14 +56,19 @@ const DashboardLayout = () => {
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const [{ data: p }, { data: r }] = await Promise.all([
-        supabase.from("profiles").select("full_name").eq("user_id", user.id).single(),
-        supabase.from("user_roles").select("role").eq("user_id", user.id).limit(1),
-      ]);
-      setProfile({
-        full_name: p?.full_name ?? null,
-        role: r?.[0]?.role ?? "",
-      });
+      try {
+        const [profileRes, roleRes] = await Promise.all([
+          supabase.from("profiles").select("full_name").eq("user_id", user.id).single(),
+          supabase.from("user_roles").select("role").eq("user_id", user.id).limit(1),
+        ]);
+        setProfile({
+          full_name: profileRes.data?.full_name ?? null,
+          role: roleRes.data?.[0]?.role ?? "",
+        });
+      } catch (err) {
+        console.warn("Failed to load profile/role:", err);
+        setProfile({ full_name: null, role: "" });
+      }
     };
     load();
   }, [user]);

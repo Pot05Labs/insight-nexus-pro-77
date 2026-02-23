@@ -44,11 +44,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setCheckingSubscription(true);
     try {
       const { data, error } = await supabase.functions.invoke("check-subscription");
-      if (error) throw error;
-      setSubscribed(data.subscribed);
-      setSubscriptionTier(data.product_id ? getTierByProductId(data.product_id) : null);
-      setSubscriptionEnd(data.subscription_end ?? null);
-    } catch {
+      if (error) {
+        console.warn("Subscription check failed (edge function may not be deployed):", error.message);
+        // Graceful fallback — don't block the app
+        setSubscribed(false);
+        setSubscriptionTier(null);
+        setSubscriptionEnd(null);
+        return;
+      }
+      setSubscribed(data?.subscribed ?? false);
+      setSubscriptionTier(data?.product_id ? getTierByProductId(data.product_id) : null);
+      setSubscriptionEnd(data?.subscription_end ?? null);
+    } catch (err) {
+      console.warn("Subscription check error:", err);
       setSubscribed(false);
       setSubscriptionTier(null);
       setSubscriptionEnd(null);
