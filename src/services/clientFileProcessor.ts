@@ -1,5 +1,13 @@
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
+import * as pdfjsLib from "pdfjs-dist";
 import { supabase } from "@/integrations/supabase/client";
+
+// Configure pdf.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
+).toString();
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
@@ -112,10 +120,12 @@ function buildFieldMap(headers: string[], aliases: Record<string, string[]>): Re
 }
 
 /* ------------------------------------------------------------------ */
-/*  Parse file to JSON rows                                           */
+/*  File parsers — CSV, XLSX, PPTX, PDF                              */
 /* ------------------------------------------------------------------ */
 
-function parseCSVText(text: string): { headers: string[]; rows: Record<string, unknown>[] } {
+export type ParsedFileResult = { headers: string[]; rows: Record<string, unknown>[] };
+
+function parseCSVText(text: string): ParsedFileResult {
   const lines = text.split("\n").filter((l) => l.trim());
   const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
   const rows = lines.slice(1).map((l) => {
@@ -135,19 +145,217 @@ function parseCSVText(text: string): { headers: string[]; rows: Record<string, u
   return { headers, rows };
 }
 
-async function parseFile(file: File): Promise<{ headers: string[]; rows: Record<string, unknown>[] }> {
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  if (ext === "csv") {
-    const text = await file.text();
-    return parseCSVText(text);
-  }
-  // xlsx / xls
-  const buffer = await file.arrayBuffer();
+function parseXLSXBuffer(buffer: ArrayBuffer): ParsedFileResult {
   const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
   const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
   return { headers, rows };
+}
+
+async function parsePPTXBlob(blob: Blob): Promise<ParsedFileResult> {
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const allRows: string[][] = [];
+
+  const slideFiles = Object.keys(zip.files)
+    .filter(name => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+    .sort((a, b) => {
+      const na = parseInt(a.match(/slide(\d+)/i)?.[1] ?? "0");
+      const nb = parseInt(b.match(/slide(\d+)/i)?.[1] ?? "0");
+      return na - nb;
+    });
+
+  const domParser = new DOMParser();
+
+  for (const slidePath of slideFiles) {
+    const xml = await zip.files[slidePath].async("text");
+    const doc = domParser.parseFromString(xml, "application/xml");
+
+    const tables = doc.getElementsByTagName("a:tbl");
+    for (let t = 0; t < tables.length; t++) {
+      const tbl = tables[t];
+      const trs = tbl.getElementsByTagName("a:tr");
+      for (let r = 0; r < trs.length; r++) {
+        const tr = trs[r];
+        const tcs = tr.getElementsByTagName("a:tc");
+        const cells: string[] = [];
+        for (let c = 0; c < tcs.length; c++) {
+          const textNodes = tcs[c].getElementsByTagName("a:t");
+          const parts: string[] = [];
+          for (let n = 0; n < textNodes.length; n++) {
+            parts.push(textNodes[n].textContent?.trim() ?? "");
+          }
+          cells.push(parts.join(" ").trim());
+        }
+        if (cells.length > 0 && cells.some(c => c !== "")) allRows.push(cells);
+      }
+    }
+  }
+
+  if (allRows.length < 2) {
+    throw new Error("No data tables found in this PowerPoint file. Tables in slides are required for data extraction.");
+  }
+
+  const headers = allRows[0];
+  const dataRows = allRows.slice(1).map(row => {
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, i) => { obj[h] = row[i] ?? null; });
+    return obj;
+  });
+  return { headers, rows: dataRows };
+}
+
+/**
+ * Parse a PDF file into tabular data.
+ * Strategy:
+ * 1. Extract all text content from every page
+ * 2. Try to detect table structure from consistent line patterns
+ * 3. Fall back to line-based text extraction
+ */
+async function parsePDFBlob(blob: Blob): Promise<ParsedFileResult> {
+  const buffer = await blob.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+
+  const allLines: string[] = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+
+    // Group text items by Y position to reconstruct lines
+    const itemsByY: Record<number, { x: number; text: string }[]> = {};
+    for (const item of textContent.items) {
+      if (!("str" in item)) continue;
+      const y = Math.round((item as any).transform[5]);
+      if (!itemsByY[y]) itemsByY[y] = [];
+      itemsByY[y].push({ x: (item as any).transform[4], text: (item as any).str });
+    }
+
+    // Sort by Y descending (PDF coordinates are bottom-up), then X ascending
+    const sortedYs = Object.keys(itemsByY).map(Number).sort((a, b) => b - a);
+    for (const y of sortedYs) {
+      const lineItems = itemsByY[y].sort((a, b) => a.x - b.x);
+      const lineText = lineItems.map(i => i.text).join("\t").trim();
+      if (lineText) allLines.push(lineText);
+    }
+  }
+
+  if (allLines.length < 2) {
+    throw new Error("No tabular data found in this PDF. The file needs structured data (tables) for import.");
+  }
+
+  // Detect the best separator: tab, |, or multiple spaces
+  const firstLine = allLines[0];
+  let separator: string | RegExp;
+  if (firstLine.includes("\t")) {
+    separator = "\t";
+  } else if (firstLine.includes("|")) {
+    separator = "|";
+  } else {
+    // Multiple spaces as separator
+    separator = /\s{2,}/;
+  }
+
+  // Parse header row
+  const headers = (typeof separator === "string"
+    ? firstLine.split(separator)
+    : firstLine.split(separator)
+  ).map(h => h.trim()).filter(h => h.length > 0);
+
+  if (headers.length < 2) {
+    throw new Error("Could not detect column structure in PDF. Try converting to CSV or XLSX for better results.");
+  }
+
+  // Parse data rows
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 1; i < allLines.length; i++) {
+    const cells = (typeof separator === "string"
+      ? allLines[i].split(separator)
+      : allLines[i].split(separator)
+    ).map(c => c.trim());
+
+    // Skip lines that don't roughly match the header count (likely sub-headers or footers)
+    if (cells.length < Math.max(2, headers.length - 2) || cells.length > headers.length + 2) continue;
+
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, idx) => {
+      obj[h] = cells[idx] ?? null;
+    });
+    rows.push(obj);
+  }
+
+  if (rows.length === 0) {
+    throw new Error("Extracted headers from PDF but no data rows matched the structure. Try CSV or XLSX instead.");
+  }
+
+  return { headers, rows };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Unified file parser                                               */
+/* ------------------------------------------------------------------ */
+
+export function getFileExtension(fileName: string): string {
+  return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+export async function parseFile(file: File): Promise<ParsedFileResult> {
+  const ext = getFileExtension(file.name);
+
+  switch (ext) {
+    case "csv": {
+      const text = await file.text();
+      return parseCSVText(text);
+    }
+    case "xlsx":
+    case "xls": {
+      const buffer = await file.arrayBuffer();
+      return parseXLSXBuffer(buffer);
+    }
+    case "pptx": {
+      return parsePPTXBlob(file);
+    }
+    case "pdf": {
+      return parsePDFBlob(file);
+    }
+    default: {
+      // Try XLSX first, then PPTX fallback for unknown Office files
+      try {
+        const buffer = await file.arrayBuffer();
+        return parseXLSXBuffer(buffer);
+      } catch {
+        try {
+          return await parsePPTXBlob(file);
+        } catch {
+          throw new Error(`Unsupported file format: .${ext}. Supported: CSV, XLSX, PPTX, PDF.`);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Parse a Blob (e.g. from Supabase storage download) using filename to detect type.
+ */
+export async function parseBlobAsFile(blob: Blob, fileName: string): Promise<ParsedFileResult> {
+  const file = new File([blob], fileName, { type: blob.type });
+  return parseFile(file);
+}
+
+/**
+ * Generate a preview (first 5 rows) for any supported file type.
+ */
+export async function generatePreview(file: File): Promise<{ columns: string[]; preview: string[][] }> {
+  const { headers, rows } = await parseFile(file);
+  const previewRows = rows.slice(0, 5).map(row =>
+    headers.map(h => {
+      const val = row[h];
+      if (val === null || val === undefined) return "";
+      if (val instanceof Date) return val.toISOString().split("T")[0];
+      return String(val);
+    })
+  );
+  return { columns: headers, preview: previewRows };
 }
 
 /* ------------------------------------------------------------------ */
@@ -203,16 +411,20 @@ export async function processFileClientSide(
 
   // Get project
   const { data: proj } = await supabase.from("projects").select("id").limit(1).single();
+  let projectId: string;
   if (!proj) {
-    // Auto-create a default project
-    const { data: newProj, error: projErr } = await supabase.from("projects").insert({ user_id: userId, name: "Default Project" }).select("id").single();
+    const { data: newProj, error: projErr } = await supabase
+      .from("projects")
+      .insert({ user_id: userId, name: "Default Project" })
+      .select("id")
+      .single();
     if (projErr || !newProj) {
       await supabase.from("data_uploads").update({ status: "error", error_message: "Could not create project" }).eq("id", uploadId);
       throw new Error("Could not create project");
     }
-    var projectId = newProj.id;
+    projectId = newProj.id;
   } else {
-    var projectId = proj.id;
+    projectId = proj.id;
   }
 
   // Update upload record
@@ -288,17 +500,11 @@ export async function processFileClientSide(
     }
 
     progress("Inserting data...", 2, totalInserted, jsonRows.length);
-    // Yield to UI thread
     await new Promise((r) => setTimeout(r, 50));
   }
 
   // Stage 4: Compute metrics
   progress("Computing metrics...", 3, totalInserted, jsonRows.length);
-
-  const metricsToStore: Array<{
-    user_id: string; project_id: string; metric_name: string;
-    metric_value: number | null; dimensions: Record<string, string | number | null> | null;
-  }> = [];
 
   if (!isCampaign && totalInserted > 0) {
     const { data: soData } = await supabase
@@ -312,7 +518,7 @@ export async function processFileClientSide(
       const uniqueSkus = new Set(soData.map((r) => r.sku).filter(Boolean)).size;
       const uniqueRetailers = new Set(soData.map((r) => r.retailer).filter(Boolean)).size;
       const fillRate = totalUnits > 0 ? totalSupplied / totalUnits : 0;
-      metricsToStore.push({
+      await supabase.from("computed_metrics").insert({
         user_id: userId, project_id: projectId, metric_name: "sell_out_summary", metric_value: null,
         dimensions: { total_revenue: totalRevenue, total_units: totalUnits, unique_skus: uniqueSkus, unique_retailers: uniqueRetailers, fill_rate: Math.round(fillRate * 10000) / 10000 },
       });
@@ -335,15 +541,11 @@ export async function processFileClientSide(
       const avgCPC = totalClicks > 0 ? totalSpend / totalClicks : 0;
       const roas = totalSpend > 0 ? totalSalesAttributed / totalSpend : 0;
       const cps = totalUnitsAttributed > 0 ? totalSpend / totalUnitsAttributed : 0;
-      metricsToStore.push({
+      await supabase.from("computed_metrics").insert({
         user_id: userId, project_id: projectId, metric_name: "campaign_summary", metric_value: null,
         dimensions: { total_spend: Math.round(totalSpend * 100) / 100, total_impressions: totalImpressions, total_clicks: totalClicks, avg_ctr: Math.round(avgCTR * 100) / 100, avg_cpc: Math.round(avgCPC * 100) / 100, roas: Math.round(roas * 100) / 100, cps: Math.round(cps * 100) / 100, total_conversions: totalConversions },
       });
     }
-  }
-
-  if (metricsToStore.length > 0) {
-    await supabase.from("computed_metrics").insert(metricsToStore);
   }
 
   // Stage 5: Finalize
@@ -370,18 +572,15 @@ export async function reprocessFromStorage(
   sourceName: string | null,
   onProgress?: (p: ProcessingProgress) => void,
 ): Promise<{ rowsInserted: number; detectedType: string; fieldMap: Record<string, string> }> {
-  // Download blob from Supabase storage
   const { data: blob, error: dlErr } = await supabase.storage.from("uploads").download(storagePath);
   if (dlErr || !blob) throw new Error("Failed to download file from storage: " + (dlErr?.message ?? "unknown"));
 
-  // Delete any previously inserted data for this upload
   await Promise.all([
     supabase.from("sell_out_data").delete().eq("upload_id", uploadId),
     supabase.from("campaign_data_v2").delete().eq("upload_id", uploadId),
     supabase.from("computed_metrics").delete().eq("user_id", userId),
   ]);
 
-  // Convert blob to File for reuse of existing processor
   const file = new File([blob], fileName, { type: blob.type });
   return processFileClientSide(file, uploadId, userId, sourceName, onProgress);
 }
