@@ -5,6 +5,7 @@ import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiu
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
 import PotLabsInsights from "@/components/PotLabsInsights";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
@@ -95,6 +96,13 @@ const RetailersPage = () => {
       <div>
         <h1 className="font-display text-2xl font-bold">Retailers</h1>
         <p className="text-muted-foreground text-sm">Retailer channel intelligence — distribution effectiveness and choice architecture.</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <ExportCsvButton
+          filename="Retailers"
+          headers={["Retailer", "Revenue", "Units", "Avg Order Value", "Stores", "Index"]}
+          rows={tableData.map((r) => [r.retailer, r.revenue, r.units, r.aov.toFixed(2), r.stores, r.index])}
+        />
       </div>
 
       <Card>

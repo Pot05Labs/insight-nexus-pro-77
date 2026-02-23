@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileSpreadsheet, FileText, File as FileLucide, Presentation, X, CheckCircle2, AlertCircle, Loader2, Brain, Search, Calculator, PenTool, FileSearch, Trash2, Inbox, RotateCcw } from "lucide-react";
+import { Upload, FileSpreadsheet, FileText, File as FileLucide, Presentation, FileJson, FileCode, X, CheckCircle2, AlertCircle, Loader2, Brain, Search, Calculator, PenTool, FileSearch, Trash2, Inbox, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,8 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { generatePreview, processFileClientSide, reprocessFromStorage, getFileExtension } from "@/services/clientFileProcessor";
+import { generatePreview, processFileClientSide, reprocessFromStorage, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
+import type { SchemaReport } from "@/lib/canonical-schemas";
 
 type AgentStatus = "pending" | "running" | "done";
 type ProcessingStage = { agent: string; label: string; icon: any; status: AgentStatus };
@@ -26,6 +27,7 @@ type UploadFile = {
   sourceType: string;
   preview?: string[][];
   columns?: string[];
+  schemaReport?: SchemaReport;
   error?: string;
   processingMessage?: string;
   agents: ProcessingStage[];
@@ -79,10 +81,13 @@ const UploadPage = () => {
   const fileTypeIcon = (fileName: string) => {
     const ext = getFileExtension(fileName);
     switch (ext) {
-      case "csv": return <FileSpreadsheet className="h-5 w-5 text-emerald-500" />;
+      case "csv": case "tsv": case "tab": return <FileSpreadsheet className="h-5 w-5 text-emerald-500" />;
       case "xlsx": case "xls": return <FileSpreadsheet className="h-5 w-5 text-green-600" />;
       case "pptx": return <Presentation className="h-5 w-5 text-orange-500" />;
       case "pdf": return <FileText className="h-5 w-5 text-red-500" />;
+      case "json": return <FileJson className="h-5 w-5 text-yellow-500" />;
+      case "xml": return <FileCode className="h-5 w-5 text-blue-500" />;
+      case "txt": return <FileText className="h-5 w-5 text-muted-foreground" />;
       default: return <FileLucide className="h-5 w-5 text-primary" />;
     }
   };
@@ -90,13 +95,10 @@ const UploadPage = () => {
   const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 
   const addFiles = useCallback((incoming: FileList | File[]) => {
-    const accepted = Array.from(incoming).filter((f) => {
-      const ext = f.name.split(".").pop()?.toLowerCase();
-      return ["csv", "xlsx", "xls", "pptx", "pdf"].includes(ext ?? "");
-    });
+    const accepted = Array.from(incoming);
 
     if (accepted.length === 0) {
-      toast({ title: "Unsupported file", description: "Supports CSV, XLSX, PPTX, PDF.", variant: "destructive" });
+      toast({ title: "No files selected", description: "Please select a file to upload.", variant: "destructive" });
       return;
     }
 
@@ -121,11 +123,11 @@ const UploadPage = () => {
       return;
     }
 
-    // Generate previews for ALL file types using the centralized service
+    // Generate previews + schema reports for ALL file types
     newFiles.forEach((uf) => {
       generatePreview(uf.file)
-        .then(({ columns, preview }) => {
-          setFiles((prev) => prev.map((f) => (f.id === uf.id ? { ...f, columns, preview } : f)));
+        .then(({ columns, preview, schemaReport: sr }) => {
+          setFiles((prev) => prev.map((f) => (f.id === uf.id ? { ...f, columns, preview, schemaReport: sr } : f)));
         })
         .catch((err) => {
           console.warn(`Preview generation failed for ${uf.file.name}:`, err.message);
@@ -181,7 +183,8 @@ const UploadPage = () => {
         updateFile(fileId, { status: "error", error: "No rows could be parsed. Check column headers match expected format.", processingMessage: undefined });
       } else {
         updateFile(fileId, { status: "done", progress: 100, processingMessage: "Done!" });
-        toast({ title: "File processed", description: `${result.rowsInserted} rows inserted as ${result.detectedType === "campaign" ? "Campaign" : "Sell-out"} data.` });
+        const typeLabel = result.detectedType === "mixed" ? "Sell-out + Campaign" : result.detectedType === "campaign" ? "Campaign" : "Sell-out";
+        toast({ title: "File processed", description: `${result.rowsInserted} rows inserted as ${typeLabel} data.` });
       }
     } catch (err: any) {
       updateFile(fileId, { status: "error", error: err.message || "Processing failed", processingMessage: undefined });
@@ -280,8 +283,8 @@ const UploadPage = () => {
       >
         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
         <p className="font-medium mb-1">Drop files here or click to browse</p>
-        <p className="text-sm text-muted-foreground">Supports CSV, XLSX, PPTX, PDF</p>
-        <input id="file-input" type="file" className="hidden" accept=".csv,.xlsx,.xls,.pptx,.pdf" multiple
+        <p className="text-sm text-muted-foreground">Supports CSV, XLSX, PPTX, PDF, JSON, XML, TXT, and more</p>
+        <input id="file-input" type="file" className="hidden" multiple
           onChange={(e) => e.target.files && addFiles(e.target.files)} />
       </motion.div>
 
@@ -372,6 +375,43 @@ const UploadPage = () => {
                           ))}
                         </TableBody>
                       </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Schema Mapping Report */}
+                {uf.schemaReport && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-medium">Schema Mapping</p>
+                      <Badge variant={uf.schemaReport.confidence >= 70 ? "default" : uf.schemaReport.confidence >= 40 ? "secondary" : "destructive"} className="text-[10px]">
+                        {uf.schemaReport.confidence}% match
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">
+                        {uf.schemaReport.dataType === "mixed" ? "Sell-out + Campaign" : uf.schemaReport.dataType === "campaign" ? "Campaign" : "Sell-out"}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {uf.schemaReport.mapped.map((m) => (
+                        <Badge key={m.canonical} variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-700 border-emerald-500/20">
+                          {m.canonical} → {m.sourceColumn}
+                        </Badge>
+                      ))}
+                      {uf.schemaReport.unmapped.filter((u) => u.required).map((u) => (
+                        <Badge key={u.canonical} variant="outline" className="text-[9px] bg-amber-500/10 text-amber-700 border-amber-500/20">
+                          {u.canonical} — not found
+                        </Badge>
+                      ))}
+                      {uf.schemaReport.unmappedSource.slice(0, 5).map((col) => (
+                        <Badge key={col} variant="outline" className="text-[9px] bg-muted text-muted-foreground">
+                          {col}
+                        </Badge>
+                      ))}
+                      {uf.schemaReport.unmappedSource.length > 5 && (
+                        <Badge variant="outline" className="text-[9px] bg-muted text-muted-foreground">
+                          +{uf.schemaReport.unmappedSource.length - 5} more
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 )}

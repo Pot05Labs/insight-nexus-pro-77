@@ -57,7 +57,7 @@ const PricingPage = () => {
   };
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-5xl">
+    <div className="p-6 lg:p-8 space-y-6 max-w-6xl">
       <div>
         <h1 className="font-display text-2xl font-bold">Plans & Billing</h1>
         <p className="text-muted-foreground text-sm">Choose the plan that fits your business.</p>
@@ -86,9 +86,11 @@ const PricingPage = () => {
         </Card>
       )}
 
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
         {(Object.entries(TIERS) as [TierKey, typeof TIERS[TierKey]][]).map(([key, tier], i) => {
           const isActive = currentTier === key;
+          const isPopular = key === "growth";
+          const needsContact = key === "scale" || key === "enterprise";
           return (
             <motion.div
               key={key}
@@ -96,8 +98,8 @@ const PricingPage = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
             >
-              <Card className={`relative h-full flex flex-col ${key === "professional" ? "border-primary shadow-lg" : ""} ${isActive ? "ring-2 ring-primary" : ""}`}>
-                {key === "professional" && (
+              <Card className={`relative h-full flex flex-col ${isPopular ? "border-primary shadow-lg" : ""} ${isActive ? "ring-2 ring-primary" : ""}`}>
+                {isPopular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <Badge className="bg-primary text-primary-foreground">Most Popular</Badge>
                   </div>
@@ -107,36 +109,37 @@ const PricingPage = () => {
                     <Badge variant="outline" className="border-primary text-primary bg-primary/10">Your Plan</Badge>
                   </div>
                 )}
-                <CardHeader>
-                  <CardTitle className="font-display text-xl">{tier.name}</CardTitle>
-                  <CardDescription>
-                    <span className="text-3xl font-bold text-foreground">{tier.price}</span>
-                    {key !== "enterprise" && <span className="text-muted-foreground"> /month</span>}
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-display text-lg">{tier.name}</CardTitle>
+                  <p className="text-xs text-muted-foreground">{tier.description}</p>
+                  <CardDescription className="pt-2">
+                    <span className="text-2xl font-bold text-foreground">{tier.price}</span>
+                    {!needsContact && <span className="text-muted-foreground text-sm"> /month</span>}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 flex flex-col">
-                  <ul className="space-y-3 flex-1">
+                <CardContent className="flex-1 flex flex-col pt-0">
+                  <ul className="space-y-2.5 flex-1">
                     {tier.features.map((f) => (
                       <li key={f} className="flex items-start gap-2 text-sm">
-                        <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                        <span>{f}</span>
+                        <Check className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                        <span className="text-sm">{f}</span>
                       </li>
                     ))}
                   </ul>
                   <Button
-                    className="w-full mt-6"
-                    variant={isActive ? "outline" : key === "professional" ? "default" : "secondary"}
-                    disabled={key === "enterprise" ? false : (checking || isActive || loading === key)}
+                    className="w-full mt-5"
+                    variant={isActive ? "outline" : isPopular ? "default" : "secondary"}
+                    disabled={needsContact ? false : (checking || isActive || loading === key)}
                     onClick={() => {
-                      if (key === "enterprise") {
-                        window.location.href = "mailto:hello@potstrategy.com?subject=Enterprise%20Plan%20Inquiry";
+                      if (needsContact) {
+                        window.location.href = "mailto:hello@potstrategy.com?subject=SignalStack%20" + tier.name + "%20Plan%20Inquiry";
                       } else {
                         handleCheckout(tier.priceId, key, tier.name);
                       }
                     }}
                   >
                     {loading === key && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                    {isActive ? "Current plan" : key === "enterprise" ? "Contact Us" : "Get started"}
+                    {isActive ? "Current plan" : needsContact ? "Contact Us" : "Get started"}
                   </Button>
                 </CardContent>
               </Card>

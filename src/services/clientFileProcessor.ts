@@ -2,6 +2,12 @@ import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import * as pdfjsLib from "pdfjs-dist";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  SELL_OUT_SCHEMA,
+  CAMPAIGN_SCHEMA,
+  buildSchemaReport,
+  type SchemaReport,
+} from "@/lib/canonical-schemas";
 
 // Configure pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -41,50 +47,19 @@ function parseDate(v: unknown): string | null {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Column aliases                                                    */
+/*  Column aliases — derived from canonical schemas                    */
 /* ------------------------------------------------------------------ */
 
-const SELL_OUT_ALIASES: Record<string, string[]> = {
-  date: ["date", "date_delivery", "date delivery", "delivery_date", "delivery date", "delivery_day",
-    "week", "period", "month", "day", "report_date", "sale_date", "transaction_date", "order_date", "invoice_date"],
-  product_name_raw: ["product", "product_name", "product_name_raw", "item", "description",
-    "product_description", "item_name", "title", "product_title", "item_description"],
-  sku: ["sku", "sku/subs sku", "sku_code", "subs_sku", "ean", "barcode", "upc", "asin",
-    "product_code", "item_code", "article", "article_code", "material", "material_code"],
-  retailer: ["retailer", "vendor", "channel", "store", "marketplace", "outlet", "account",
-    "customer", "store_name", "account_name", "partner", "supplier"],
-  store_location: ["store_location", "location", "store_loc", "outlet_location", "branch", "site"],
-  region: ["region", "area", "territory", "geo", "geography", "market", "province"],
-  category: ["category", "product_category", "cat", "segment", "product_group", "department"],
-  brand: ["brand", "brand_name", "manufacturer"],
-  sub_brand: ["sub_brand", "subbrand", "sub_brand_name", "variant", "subs product", "subs_product"],
-  format_size: ["format_size", "format", "size", "pack_size", "pack", "packaging"],
-  revenue: ["revenue", "sales", "total_sales", "net_sales", "gross_sales", "sales_value",
-    "ordered_value", "ordered value", "merchandise_sales", "merchandise sales",
-    "amount", "value", "turnover", "net_revenue", "gross_revenue", "total_value"],
-  units_sold: ["units", "units_sold", "qty", "quantity", "volume", "units_ordered",
-    "ordered_qty", "ordered qty", "qty_sold", "sold_qty", "total_units"],
-  units_supplied: ["units_supplied", "supplied", "supply_qty", "qty_supplied",
-    "supplied_qty", "supplied qty", "delivered", "units_delivered"],
-  cost: ["cost", "cogs", "cost_of_goods", "unit_cost", "total_cost", "cost_value", "cost_price"],
-  order_id: ["order_id", "order id", "mainorderid", "main_order_id", "transaction_id", "invoice_id", "invoice_no"],
-};
+function aliasesFromSchema(schema: Record<string, { aliases: string[] }>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [key, field] of Object.entries(schema)) {
+    out[key] = field.aliases;
+  }
+  return out;
+}
 
-const CAMPAIGN_ALIASES: Record<string, string[]> = {
-  flight_start: ["date", "day", "report_date", "start_date", "flight_start", "campaign_date"],
-  flight_end: ["end_date", "flight_end", "campaign_end"],
-  platform: ["platform", "source", "network", "media", "media_channel", "ad_platform"],
-  channel: ["channel", "media_type", "channel_type"],
-  campaign_name: ["campaign", "campaign_name", "campaign_title", "name", "campaign_id"],
-  spend: ["spend", "cost", "total_spend", "media_spend", "ad_spend", "amount_spent", "media_cost", "investment"],
-  impressions: ["impressions", "impressions_paid", "imps", "views", "total_impressions"],
-  clicks: ["clicks", "link_clicks", "total_clicks"],
-  ctr: ["ctr", "click_through_rate", "click_rate"],
-  conversions: ["conversions", "purchases", "orders", "actions", "results", "total_conversions"],
-  revenue: ["revenue", "purchase_value", "conversion_value", "roas_value", "value", "sales_value", "attributed_revenue"],
-  total_sales_attributed: ["total_sales_attributed", "attributed_sales", "sales_attributed"],
-  total_units_attributed: ["total_units_attributed", "attributed_units", "units_attributed"],
-};
+const SELL_OUT_ALIASES: Record<string, string[]> = aliasesFromSchema(SELL_OUT_SCHEMA);
+const CAMPAIGN_ALIASES: Record<string, string[]> = aliasesFromSchema(CAMPAIGN_SCHEMA);
 
 const SELL_OUT_SIGNALS = [
   "units_sold", "units_supplied", "sales_value", "retailer", "sku_code",
@@ -105,7 +80,9 @@ const CAMPAIGN_SIGNALS = [
   "total_units_attributed",
 ];
 
-function detectDataType(headers: string[]): "sell_out" | "campaign" {
+export type DetectedTypes = { sell_out: boolean; campaign: boolean };
+
+function detectDataTypes(headers: string[]): DetectedTypes {
   const normHeaders = headers.map(norm);
   let sellOutScore = 0;
   let campaignScore = 0;
@@ -113,7 +90,17 @@ function detectDataType(headers: string[]): "sell_out" | "campaign" {
     if (SELL_OUT_SIGNALS.some((s) => h === s || h.includes(s))) sellOutScore++;
     if (CAMPAIGN_SIGNALS.some((s) => h === s || h.includes(s))) campaignScore++;
   }
-  return campaignScore > sellOutScore ? "campaign" : "sell_out";
+  // If both score >= 3, it's a mixed file
+  if (sellOutScore >= 3 && campaignScore >= 3) return { sell_out: true, campaign: true };
+  if (campaignScore > sellOutScore) return { sell_out: false, campaign: true };
+  return { sell_out: true, campaign: false };
+}
+
+/** Legacy single-type detection for backward compat */
+function detectDataType(headers: string[]): "sell_out" | "campaign" {
+  const types = detectDataTypes(headers);
+  if (types.campaign && !types.sell_out) return "campaign";
+  return "sell_out";
 }
 
 function buildFieldMap(headers: string[], aliases: Record<string, string[]>): Record<string, string> {
@@ -132,6 +119,31 @@ function buildFieldMap(headers: string[], aliases: Record<string, string[]>): Re
     }
   }
   return map;
+}
+
+/** Build a schema report for a parsed file */
+export function buildFileSchemaReport(
+  headers: string[],
+  rows: Record<string, unknown>[],
+): SchemaReport {
+  const types = detectDataTypes(headers);
+  const isMixed = types.sell_out && types.campaign;
+  const isCampaign = types.campaign && !types.sell_out;
+
+  if (isMixed) {
+    // Report against both schemas combined
+    const soMap = buildFieldMap(headers, SELL_OUT_ALIASES);
+    const cpMap = buildFieldMap(headers, CAMPAIGN_ALIASES);
+    const combined = { ...soMap, ...cpMap };
+    const combinedSchema = { ...SELL_OUT_SCHEMA, ...CAMPAIGN_SCHEMA };
+    return buildSchemaReport(headers, rows, combined, combinedSchema, "mixed");
+  }
+
+  const schema = isCampaign ? CAMPAIGN_SCHEMA : SELL_OUT_SCHEMA;
+  const aliases = isCampaign ? CAMPAIGN_ALIASES : SELL_OUT_ALIASES;
+  const fieldMap = buildFieldMap(headers, aliases);
+  const dataType = isCampaign ? "campaign" : "sell_out";
+  return buildSchemaReport(headers, rows, fieldMap, schema, dataType);
 }
 
 /* ------------------------------------------------------------------ */
@@ -801,6 +813,128 @@ async function parsePDFBlob(blob: Blob): Promise<ParsedFileResult> {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Additional parsers — TSV, JSON, XML                               */
+/* ------------------------------------------------------------------ */
+
+function parseDelimitedText(text: string, forceSep?: string): ParsedFileResult {
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (lines.length < 2) throw new Error("File has no data rows.");
+
+  // Auto-detect separator from first line
+  const firstLine = lines[0];
+  let sep = forceSep ?? ",";
+  if (!forceSep) {
+    const tabCount = (firstLine.match(/\t/g) ?? []).length;
+    const commaCount = (firstLine.match(/,/g) ?? []).length;
+    const semiCount = (firstLine.match(/;/g) ?? []).length;
+    const pipeCount = (firstLine.match(/\|/g) ?? []).length;
+    const max = Math.max(tabCount, commaCount, semiCount, pipeCount);
+    if (max === tabCount && tabCount > 0) sep = "\t";
+    else if (max === semiCount && semiCount > 0) sep = ";";
+    else if (max === pipeCount && pipeCount > 0) sep = "|";
+    else sep = ",";
+  }
+
+  const headers = firstLine.split(sep).map((h) => h.trim().replace(/^["']|["']$/g, ""));
+  const rows = lines.slice(1).map((l) => {
+    const values = l.split(sep).map((v) => v.trim().replace(/^["']|["']$/g, ""));
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, i) => { obj[h] = values[i] ?? null; });
+    return obj;
+  });
+  return { headers, rows };
+}
+
+function parseJSONText(text: string): ParsedFileResult {
+  const parsed = JSON.parse(text);
+  let arr: Record<string, unknown>[];
+
+  if (Array.isArray(parsed)) {
+    arr = parsed;
+  } else if (typeof parsed === "object" && parsed !== null) {
+    // Try to find the first array property
+    const arrayKey = Object.keys(parsed).find((k) => Array.isArray(parsed[k]));
+    if (arrayKey) {
+      arr = parsed[arrayKey];
+    } else {
+      // Single object → wrap in array
+      arr = [parsed];
+    }
+  } else {
+    throw new Error("JSON file does not contain structured data.");
+  }
+
+  if (arr.length === 0) throw new Error("JSON array is empty.");
+
+  // Flatten nested objects with dot notation
+  const flattened = arr.map((item) => {
+    const flat: Record<string, unknown> = {};
+    const flatten = (obj: Record<string, unknown>, prefix: string) => {
+      for (const [key, val] of Object.entries(obj)) {
+        const newKey = prefix ? `${prefix}_${key}` : key;
+        if (val && typeof val === "object" && !Array.isArray(val) && !(val instanceof Date)) {
+          flatten(val as Record<string, unknown>, newKey);
+        } else {
+          flat[newKey] = val;
+        }
+      }
+    };
+    flatten(item, "");
+    return flat;
+  });
+
+  // Collect all keys from all rows
+  const headerSet = new Set<string>();
+  flattened.forEach((r) => Object.keys(r).forEach((k) => headerSet.add(k)));
+  const headers = [...headerSet];
+  return { headers, rows: flattened };
+}
+
+function parseXMLText(text: string): ParsedFileResult {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, "application/xml");
+
+  // Find the most common repeating element (rows)
+  const allTags = doc.querySelectorAll("*");
+  const tagCounts: Record<string, number> = {};
+  allTags.forEach((el) => {
+    const name = el.tagName;
+    tagCounts[name] = (tagCounts[name] ?? 0) + 1;
+  });
+
+  // Find the tag that appears most often (likely row elements)
+  const sorted = Object.entries(tagCounts)
+    .filter(([, c]) => c >= 2)
+    .sort(([, a], [, b]) => b - a);
+
+  for (const [tagName] of sorted) {
+    const elements = doc.getElementsByTagName(tagName);
+    if (elements.length < 2) continue;
+
+    // Check if these elements have child elements (cells)
+    const firstEl = elements[0];
+    const childTags = Array.from(firstEl.children).map((c) => c.tagName);
+    if (childTags.length < 2) continue;
+
+    // Use child tag names as headers
+    const headers = childTags;
+    const rows: Record<string, unknown>[] = [];
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      const obj: Record<string, unknown> = {};
+      for (const childTag of headers) {
+        const child = el.getElementsByTagName(childTag)[0];
+        obj[childTag] = child?.textContent?.trim() ?? null;
+      }
+      rows.push(obj);
+    }
+    if (rows.length >= 1) return { headers, rows };
+  }
+
+  throw new Error("Could not extract tabular data from XML. Try CSV or XLSX format.");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Unified file parser                                               */
 /* ------------------------------------------------------------------ */
 
@@ -816,6 +950,23 @@ export async function parseFile(file: File): Promise<ParsedFileResult> {
       const text = await file.text();
       return parseCSVText(text);
     }
+    case "tsv":
+    case "tab": {
+      const text = await file.text();
+      return parseDelimitedText(text, "\t");
+    }
+    case "txt": {
+      const text = await file.text();
+      return parseDelimitedText(text); // auto-detect delimiter
+    }
+    case "json": {
+      const text = await file.text();
+      return parseJSONText(text);
+    }
+    case "xml": {
+      const text = await file.text();
+      return parseXMLText(text);
+    }
     case "xlsx":
     case "xls": {
       const buffer = await file.arrayBuffer();
@@ -828,15 +979,30 @@ export async function parseFile(file: File): Promise<ParsedFileResult> {
       return parsePDFBlob(file);
     }
     default: {
-      // Try XLSX first, then PPTX fallback for unknown Office files
+      // Smart fallback: try text-based formats first, then binary
       try {
-        const buffer = await file.arrayBuffer();
-        return parseXLSXBuffer(buffer);
+        const text = await file.text();
+        // Try JSON
+        if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
+          return parseJSONText(text);
+        }
+        // Try XML
+        if (text.trim().startsWith("<")) {
+          return parseXMLText(text);
+        }
+        // Try delimited text
+        return parseDelimitedText(text);
       } catch {
+        // Try XLSX then PPTX for binary files
         try {
-          return await parsePPTXBlob(file);
+          const buffer = await file.arrayBuffer();
+          return parseXLSXBuffer(buffer);
         } catch {
-          throw new Error(`Unsupported file format: .${ext}. Supported: CSV, XLSX, PPTX, PDF.`);
+          try {
+            return await parsePPTXBlob(file);
+          } catch {
+            throw new Error(`Could not parse file: .${ext}. Try converting to CSV, XLSX, JSON, or PDF.`);
+          }
         }
       }
     }
@@ -852,9 +1018,9 @@ export async function parseBlobAsFile(blob: Blob, fileName: string): Promise<Par
 }
 
 /**
- * Generate a preview (first 5 rows) for any supported file type.
+ * Generate a preview (first 5 rows) + schema report for any supported file type.
  */
-export async function generatePreview(file: File): Promise<{ columns: string[]; preview: string[][] }> {
+export async function generatePreview(file: File): Promise<{ columns: string[]; preview: string[][]; schemaReport: SchemaReport }> {
   const { headers, rows } = await parseFile(file);
   const previewRows = rows.slice(0, 5).map(row =>
     headers.map(h => {
@@ -864,7 +1030,8 @@ export async function generatePreview(file: File): Promise<{ columns: string[]; 
       return String(val);
     })
   );
-  return { columns: headers, preview: previewRows };
+  const schemaReport = buildFileSchemaReport(headers, rows);
+  return { columns: headers, preview: previewRows, schemaReport };
 }
 
 /* ------------------------------------------------------------------ */
@@ -890,7 +1057,7 @@ export async function processFileClientSide(
   userId: string,
   sourceName: string | null,
   onProgress?: (p: ProcessingProgress) => void,
-): Promise<{ rowsInserted: number; detectedType: string; fieldMap: Record<string, string> }> {
+): Promise<{ rowsInserted: number; detectedType: string; fieldMap: Record<string, string>; schemaReport?: SchemaReport }> {
   const progress = (stage: string, stageIndex: number, rowsInserted: number, totalRows: number) => {
     onProgress?.({
       stage,
@@ -911,12 +1078,21 @@ export async function processFileClientSide(
     throw new Error("No data found in file");
   }
 
-  // Stage 2: Detect type & map columns
+  // Stage 2: Detect type & map columns (with multi-table support)
   progress("Classifying columns...", 1, 0, jsonRows.length);
-  const detectedType = detectDataType(headers);
-  const isCampaign = detectedType === "campaign";
-  const aliases = isCampaign ? CAMPAIGN_ALIASES : SELL_OUT_ALIASES;
-  const fieldMap = buildFieldMap(headers, aliases);
+  const types = detectDataTypes(headers);
+  const isMixed = types.sell_out && types.campaign;
+  const isCampaignOnly = types.campaign && !types.sell_out;
+
+  const soFieldMap = (types.sell_out) ? buildFieldMap(headers, SELL_OUT_ALIASES) : {};
+  const cpFieldMap = (types.campaign) ? buildFieldMap(headers, CAMPAIGN_ALIASES) : {};
+
+  // Primary type for upload record
+  const detectedType = isMixed ? "mixed" : (isCampaignOnly ? "campaign" : "sell_out");
+  const fieldMap = isCampaignOnly ? cpFieldMap : soFieldMap;
+
+  // Build schema report
+  const schemaReport = buildFileSchemaReport(headers, jsonRows);
 
   // Get project
   const { data: proj } = await supabase.from("projects").select("id").limit(1).single();
@@ -940,14 +1116,18 @@ export async function processFileClientSide(
   await supabase.from("data_uploads").update({
     column_names: headers,
     data_type: detectedType,
-    column_mapping: fieldMap,
-    source_type: isCampaign ? "ad_platform" : "retailer",
+    column_mapping: isMixed ? { ...soFieldMap, ...cpFieldMap } : fieldMap,
+    source_type: isCampaignOnly ? "ad_platform" : (isMixed ? "mixed" : "retailer"),
     status: "processing",
     project_id: projectId,
   }).eq("id", uploadId);
 
-  const getField = (row: Record<string, unknown>, canonical: string): unknown => {
-    const headerKey = fieldMap[canonical];
+  const getFieldSO = (row: Record<string, unknown>, canonical: string): unknown => {
+    const headerKey = soFieldMap[canonical];
+    return headerKey ? row[headerKey] : null;
+  };
+  const getFieldCP = (row: Record<string, unknown>, canonical: string): unknown => {
+    const headerKey = cpFieldMap[canonical];
     return headerKey ? row[headerKey] : null;
   };
 
@@ -959,24 +1139,56 @@ export async function processFileClientSide(
   for (let i = 0; i < jsonRows.length; i += BATCH_SIZE) {
     const batch = jsonRows.slice(i, i + BATCH_SIZE);
 
-    if (isCampaign) {
+    // Insert into sell_out_data if detected
+    if (types.sell_out) {
       const records = batch.map((row) => ({
         user_id: userId,
         project_id: projectId,
         upload_id: uploadId,
-        flight_start: parseDate(getField(row, "flight_start")) || null,
-        flight_end: parseDate(getField(row, "flight_end")) || null,
-        platform: getField(row, "platform") ? String(getField(row, "platform")) : null,
-        channel: getField(row, "channel") ? String(getField(row, "channel")) : null,
-        campaign_name: getField(row, "campaign_name") ? String(getField(row, "campaign_name")) : null,
-        spend: num(getField(row, "spend")) ?? null,
-        impressions: num(getField(row, "impressions")) ? Math.round(num(getField(row, "impressions"))!) : null,
-        clicks: num(getField(row, "clicks")) ? Math.round(num(getField(row, "clicks"))!) : null,
-        ctr: num(getField(row, "ctr")) ?? null,
-        conversions: num(getField(row, "conversions")) ? Math.round(num(getField(row, "conversions"))!) : null,
-        revenue: num(getField(row, "revenue")) ?? null,
-        total_sales_attributed: num(getField(row, "total_sales_attributed")) ?? null,
-        total_units_attributed: num(getField(row, "total_units_attributed")) ? Math.round(num(getField(row, "total_units_attributed"))!) : null,
+        date: parseDate(getFieldSO(row, "date")) || null,
+        product_name_raw: getFieldSO(row, "product_name_raw") ? String(getFieldSO(row, "product_name_raw")) : null,
+        sku: getFieldSO(row, "sku") ? String(getFieldSO(row, "sku")) : null,
+        retailer: getFieldSO(row, "retailer") ? String(getFieldSO(row, "retailer")) : (sourceName || null),
+        store_location: getFieldSO(row, "store_location") ? String(getFieldSO(row, "store_location")) : null,
+        region: getFieldSO(row, "region") ? String(getFieldSO(row, "region")) : null,
+        category: getFieldSO(row, "category") ? String(getFieldSO(row, "category")) : null,
+        brand: getFieldSO(row, "brand") ? String(getFieldSO(row, "brand")) : null,
+        sub_brand: getFieldSO(row, "sub_brand") ? String(getFieldSO(row, "sub_brand")) : null,
+        format_size: getFieldSO(row, "format_size") ? String(getFieldSO(row, "format_size")) : null,
+        revenue: num(getFieldSO(row, "revenue")) ?? null,
+        units_sold: num(getFieldSO(row, "units_sold")) ? Math.round(num(getFieldSO(row, "units_sold"))!) : null,
+        units_supplied: num(getFieldSO(row, "units_supplied")) ?? null,
+        cost: num(getFieldSO(row, "cost")) ?? null,
+      }));
+
+      const { error } = await supabase.from("sell_out_data").insert(records);
+      if (error) {
+        console.error("Sell-out insert error:", error.message);
+        if (totalInserted === 0 && i === 0 && !types.campaign) throw new Error(`Data insert failed: ${error.message}`);
+      } else {
+        totalInserted += records.length;
+      }
+    }
+
+    // Insert into campaign_data_v2 if detected
+    if (types.campaign) {
+      const records = batch.map((row) => ({
+        user_id: userId,
+        project_id: projectId,
+        upload_id: uploadId,
+        flight_start: parseDate(getFieldCP(row, "flight_start")) || null,
+        flight_end: parseDate(getFieldCP(row, "flight_end")) || null,
+        platform: getFieldCP(row, "platform") ? String(getFieldCP(row, "platform")) : null,
+        channel: getFieldCP(row, "channel") ? String(getFieldCP(row, "channel")) : null,
+        campaign_name: getFieldCP(row, "campaign_name") ? String(getFieldCP(row, "campaign_name")) : null,
+        spend: num(getFieldCP(row, "spend")) ?? null,
+        impressions: num(getFieldCP(row, "impressions")) ? Math.round(num(getFieldCP(row, "impressions"))!) : null,
+        clicks: num(getFieldCP(row, "clicks")) ? Math.round(num(getFieldCP(row, "clicks"))!) : null,
+        ctr: num(getFieldCP(row, "ctr")) ?? null,
+        conversions: num(getFieldCP(row, "conversions")) ? Math.round(num(getFieldCP(row, "conversions"))!) : null,
+        revenue: num(getFieldCP(row, "revenue")) ?? null,
+        total_sales_attributed: num(getFieldCP(row, "total_sales_attributed")) ?? null,
+        total_units_attributed: num(getFieldCP(row, "total_units_attributed")) ? Math.round(num(getFieldCP(row, "total_units_attributed"))!) : null,
       }));
 
       const { error } = await supabase.from("campaign_data_v2").insert(records);
@@ -984,35 +1196,7 @@ export async function processFileClientSide(
         console.error("Campaign insert error:", error.message);
         if (totalInserted === 0 && i === 0) throw new Error(`Data insert failed: ${error.message}`);
       } else {
-        totalInserted += records.length;
-      }
-    } else {
-      const records = batch.map((row) => ({
-        user_id: userId,
-        project_id: projectId,
-        upload_id: uploadId,
-        date: parseDate(getField(row, "date")) || null,
-        product_name_raw: getField(row, "product_name_raw") ? String(getField(row, "product_name_raw")) : null,
-        sku: getField(row, "sku") ? String(getField(row, "sku")) : null,
-        retailer: getField(row, "retailer") ? String(getField(row, "retailer")) : (sourceName || null),
-        store_location: getField(row, "store_location") ? String(getField(row, "store_location")) : null,
-        region: getField(row, "region") ? String(getField(row, "region")) : null,
-        category: getField(row, "category") ? String(getField(row, "category")) : null,
-        brand: getField(row, "brand") ? String(getField(row, "brand")) : null,
-        sub_brand: getField(row, "sub_brand") ? String(getField(row, "sub_brand")) : null,
-        format_size: getField(row, "format_size") ? String(getField(row, "format_size")) : null,
-        revenue: num(getField(row, "revenue")) ?? null,
-        units_sold: num(getField(row, "units_sold")) ? Math.round(num(getField(row, "units_sold"))!) : null,
-        units_supplied: num(getField(row, "units_supplied")) ?? null,
-        cost: num(getField(row, "cost")) ?? null,
-      }));
-
-      const { error } = await supabase.from("sell_out_data").insert(records);
-      if (error) {
-        console.error("Sell-out insert error:", error.message);
-        if (totalInserted === 0 && i === 0) throw new Error(`Data insert failed: ${error.message}`);
-      } else {
-        totalInserted += records.length;
+        if (!types.sell_out) totalInserted += records.length; // Avoid double-counting mixed
       }
     }
 
@@ -1023,7 +1207,7 @@ export async function processFileClientSide(
   // Stage 4: Compute metrics
   progress("Computing metrics...", 3, totalInserted, jsonRows.length);
 
-  if (!isCampaign && totalInserted > 0) {
+  if (types.sell_out && totalInserted > 0) {
     const { data: soData } = await supabase
       .from("sell_out_data")
       .select("revenue, units_sold, units_supplied, sku, retailer")
@@ -1042,7 +1226,7 @@ export async function processFileClientSide(
     }
   }
 
-  if (isCampaign && totalInserted > 0) {
+  if (types.campaign && totalInserted > 0) {
     const { data: cpData } = await supabase
       .from("campaign_data_v2")
       .select("spend, impressions, clicks, ctr, conversions, total_sales_attributed, total_units_attributed")
@@ -1074,7 +1258,7 @@ export async function processFileClientSide(
     error_message: totalInserted === 0 ? "No rows could be parsed. Check column headers." : null,
   }).eq("id", uploadId);
 
-  return { rowsInserted: totalInserted, detectedType, fieldMap };
+  return { rowsInserted: totalInserted, detectedType, fieldMap, schemaReport };
 }
 
 /* ------------------------------------------------------------------ */

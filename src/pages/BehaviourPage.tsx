@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Inbox, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import { streamAiChat } from "@/services/aiChatStream";
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
@@ -71,6 +72,16 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
         <h1 className="font-display text-2xl font-bold">Behaviour</h1>
         <p className="text-muted-foreground text-sm">Behavioural intelligence — understanding the nudges that drive purchase decisions.</p>
       </div>
+      <div className="flex items-center gap-3">
+        <ExportCsvButton
+          filename="Behaviour"
+          headers={["Metric", "Dimension", "Revenue"]}
+          rows={[
+            ...dayData.map((d) => ["Day of Week", d.day, d.revenue]),
+            ...compData.map((c) => ["Category", c.name, c.value]),
+          ]}
+        />
+      </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Order Composition */}
@@ -111,7 +122,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-accent" />
-              <h3 className="font-display text-sm font-bold">Customer Segments — Pot Labs Intelligence</h3>
+              <h3 className="font-display text-sm font-bold">Customer Segments — SignalStack Intelligence</h3>
             </div>
             <Button size="sm" variant="outline" onClick={generateSegments} disabled={segLoading} className="text-xs">
               {segLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}

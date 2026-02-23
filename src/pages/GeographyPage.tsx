@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Skeleton } from "@/components/ui/skeleton";
 import { Inbox } from "lucide-react";
 import PotLabsInsights from "@/components/PotLabsInsights";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 
 const GeographyPage = () => {
@@ -53,6 +54,13 @@ const GeographyPage = () => {
       <div>
         <h1 className="font-display text-2xl font-bold">Geography</h1>
         <p className="text-muted-foreground text-sm">Geographic performance — regional context effects and store-level analysis.</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <ExportCsvButton
+          filename="Geography"
+          headers={["Province", "Revenue", "Units", "AOV"]}
+          rows={provinceTable.map((r) => [r.region, r.revenue, r.units, r.aov.toFixed(2)])}
+        />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">

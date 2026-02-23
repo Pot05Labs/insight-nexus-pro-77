@@ -3,21 +3,25 @@ import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useRealtimeSellOut } from "@/hooks/useRealtimeSellOut";
 import { useAuth } from "@/contexts/AuthContext";
-import { DollarSign, ShoppingCart, Tag, Package, Inbox, Upload, Eye, MousePointerClick, TrendingUp, Megaphone, Target } from "lucide-react";
+import { DollarSign, ShoppingCart, Tag, Package, Inbox, Upload, Eye, MousePointerClick, TrendingUp, Megaphone, Target, Zap, BarChart3, CircleDollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import ExportPdfButton from "@/components/ExportPdfButton";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import PotLabsInsights from "@/components/PotLabsInsights";
+import DeltaIndicator from "@/components/DeltaIndicator";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { supabase } from "@/integrations/supabase/client";
+import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
 import DataQualityPanel from "@/components/DataQualityPanel";
 
 type CampaignRow = {
   flight_start: string | null;
+  flight_end: string | null;
   platform: string | null;
   campaign_name: string | null;
   spend: number | null;
@@ -46,7 +50,7 @@ const DashboardHome = () => {
     const projectId = projects?.[0]?.id;
     let query = supabase
       .from("campaign_data_v2")
-      .select("flight_start,platform,campaign_name,spend,impressions,clicks,conversions,revenue");
+      .select("flight_start,flight_end,platform,campaign_name,spend,impressions,clicks,conversions,revenue");
     if (projectId) query = query.eq("project_id", projectId);
     const { data: cd } = await query.limit(5000);
     setCampaigns(cd ?? []);
@@ -93,13 +97,37 @@ const DashboardHome = () => {
   const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
+  // Canonical metrics from build spec
+  const totalConversions = campaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
+  const totalCampaignRevenue = campaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const eCPM = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+  const cps = totalConversions > 0 ? totalSpend / totalConversions : 0;
+
+  // Campaign attribution — campaign-period vs baseline
+  const attributionResults = useMemo<AttributionResult[]>(() => {
+    if (!hasCampaigns || data.length === 0) return [];
+    const flights: CampaignFlight[] = campaigns
+      .filter((c) => c.campaign_name && c.flight_start)
+      .map((c) => ({
+        campaign_name: c.campaign_name!,
+        platform: c.platform ?? "Unknown",
+        flight_start: c.flight_start!,
+        flight_end: c.flight_end ?? c.flight_start!,
+        spend: Number(c.spend ?? 0),
+      }));
+    return computeCampaignAttribution(flights, data);
+  }, [campaigns, data, hasCampaigns]);
+
+  const totalIncrementalRevenue = attributionResults.reduce((s, r) => s + r.incrementalRevenue, 0);
+  const iROAS = totalSpend > 0 ? totalIncrementalRevenue / totalSpend : 0;
+
   const campaignKpis = [
     { label: "Total Ad Spend", value: fmtZAR(totalSpend), icon: Megaphone },
     { label: "Impressions", value: totalImpressions > 1_000_000 ? `${(totalImpressions / 1_000_000).toFixed(1)}M` : totalImpressions > 1000 ? `${(totalImpressions / 1000).toFixed(0)}K` : totalImpressions.toString(), icon: Eye },
     { label: "Clicks", value: totalClicks.toLocaleString(), icon: MousePointerClick },
     { label: "CTR", value: `${ctr.toFixed(2)}%`, icon: TrendingUp },
-    { label: "CPM", value: fmtZAR(cpm), icon: DollarSign },
-    { label: "CPC", value: fmtZAR(cpc), icon: DollarSign },
+    { label: "eCPM", value: fmtZAR(eCPM), icon: DollarSign },
+    { label: "CPS", value: fmtZAR(cps), icon: CircleDollarSign },
   ];
 
   // Top products by brand — fallback: extract brand from product_name_raw if brand field is null
@@ -143,7 +171,7 @@ const DashboardHome = () => {
   }));
 
   // Data summary for AI
-  const dataSummary = `Total Revenue: ${fmtZAR(totalRevenue)}, Units Sold: ${totalUnits.toLocaleString()}, Avg Order Value: ${fmtZAR(avgOrderValue)}, Unique Products: ${uniqueProducts}. Top Brands: ${brandData.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)})`).join(", ")}. Categories: ${categoryData.slice(0, 5).map((c) => `${c.category} (${fmtZAR(c.revenue)})`).join(", ")}. Campaign Spend: ${fmtZAR(totalSpend)}, Impressions: ${totalImpressions.toLocaleString()}, Clicks: ${totalClicks.toLocaleString()}, CTR: ${ctr.toFixed(2)}%, ROAS: ${roas.toFixed(1)}x.`;
+  const dataSummary = `Total Revenue: ${fmtZAR(totalRevenue)}, Units Sold: ${totalUnits.toLocaleString()}, Avg Order Value: ${fmtZAR(avgOrderValue)}, Unique Products: ${uniqueProducts}. Top Brands: ${brandData.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)})`).join(", ")}. Categories: ${categoryData.slice(0, 5).map((c) => `${c.category} (${fmtZAR(c.revenue)})`).join(", ")}. Campaign Spend: ${fmtZAR(totalSpend)}, Impressions: ${totalImpressions.toLocaleString()}, Clicks: ${totalClicks.toLocaleString()}, CTR: ${ctr.toFixed(2)}%, ROAS: ${roas.toFixed(1)}x, iROAS: ${iROAS.toFixed(1)}x, eCPM: ${fmtZAR(eCPM)}, CPS: ${fmtZAR(cps)}.${attributionResults.length > 0 ? ` Top campaigns by lift: ${attributionResults.slice(0, 3).map((r) => `${r.campaign_name} (${r.liftPct.toFixed(0)}% lift, ${r.incrementalROAS.toFixed(1)}x iROAS)`).join(", ")}.` : ""}`;
 
   const chartTooltipStyle = {
     backgroundColor: "hsl(var(--card))",
@@ -162,7 +190,25 @@ const DashboardHome = () => {
           <p className="text-muted-foreground text-sm">Multi-retailer performance + campaign data — unified.</p>
         </div>
         <div className="flex items-center gap-3">
-          <ExportPdfButton targetRef={reportRef} filename="Pot-Labs-Dashboard" />
+          <ExportCsvButton
+            filename="Dashboard"
+            headers={["Metric", "Value"]}
+            rows={[
+              ["Total Revenue", totalRevenue],
+              ["Units Sold", totalUnits],
+              ["Avg Order Value", avgOrderValue],
+              ["Unique Products", uniqueProducts],
+              ["Total Ad Spend", totalSpend],
+              ["Impressions", totalImpressions],
+              ["Clicks", totalClicks],
+              ["CTR %", ctr],
+              ["ROAS", roas],
+              ["iROAS", iROAS],
+              ["eCPM", eCPM],
+              ["Cost per Sale", cps],
+            ]}
+          />
+          <ExportPdfButton targetRef={reportRef} filename="SignalStack-Dashboard" />
         </div>
       </div>
 
@@ -188,21 +234,97 @@ const DashboardHome = () => {
           ))}
         </div>
 
-        {/* ROAS — The Commerce Marriage Metric */}
+        {/* Campaign Efficiency — ROAS, iROAS, eCPM */}
         {hasCampaigns && totalSpend > 0 && !isLoading && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-            <Card className="mb-6 border-primary/20 bg-primary/3">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Target className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Return on Ad Spend (ROAS)</span>
-                  <p className="font-display text-3xl font-bold">{roas.toFixed(1)}x</p>
-                </div>
-                <div className="ml-auto text-right">
-                  <p className="text-xs text-muted-foreground">Every R1 spent returns</p>
-                  <p className="text-sm font-semibold text-primary">{fmtZAR(roas)} in revenue</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <Card className="border-primary/20 bg-primary/3">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">ROAS</span>
+                    <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center">
+                      <Target className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                  </div>
+                  <p className="font-display text-2xl font-bold">{roas.toFixed(1)}x</p>
+                  <p className="text-[10px] text-muted-foreground">Revenue / Spend</p>
+                </CardContent>
+              </Card>
+              <Card className="border-chart-2/20 bg-chart-2/3">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">iROAS</span>
+                    <div className="h-7 w-7 rounded-md bg-chart-2/10 flex items-center justify-center">
+                      <Zap className="h-3.5 w-3.5 text-chart-2" />
+                    </div>
+                  </div>
+                  <p className="font-display text-2xl font-bold">{iROAS.toFixed(1)}x</p>
+                  <p className="text-[10px] text-muted-foreground">Incremental Revenue / Spend</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">eCPM</span>
+                    <div className="h-7 w-7 rounded-md bg-chart-4/10 flex items-center justify-center">
+                      <BarChart3 className="h-3.5 w-3.5 text-chart-4" />
+                    </div>
+                  </div>
+                  <p className="font-display text-2xl font-bold">{fmtZAR(eCPM)}</p>
+                  <p className="text-[10px] text-muted-foreground">Effective Cost per 1K Impressions</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Cost per Sale</span>
+                    <div className="h-7 w-7 rounded-md bg-chart-3/10 flex items-center justify-center">
+                      <CircleDollarSign className="h-3.5 w-3.5 text-chart-3" />
+                    </div>
+                  </div>
+                  <p className="font-display text-2xl font-bold">{fmtZAR(cps)}</p>
+                  <p className="text-[10px] text-muted-foreground">Spend / Conversions</p>
+                </CardContent>
+              </Card>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Campaign Impact — Revenue Lift vs Baseline */}
+        {attributionResults.length > 0 && !isLoading && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="font-display text-base">Campaign Impact — Revenue Lift vs Baseline</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="text-left p-3 text-xs font-semibold">Campaign</th>
+                        <th className="text-left p-3 text-xs font-semibold">Platform</th>
+                        <th className="text-right p-3 text-xs font-semibold">Baseline Revenue</th>
+                        <th className="text-right p-3 text-xs font-semibold">Flight Revenue</th>
+                        <th className="text-right p-3 text-xs font-semibold">Lift</th>
+                        <th className="text-right p-3 text-xs font-semibold">iROAS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attributionResults.slice(0, 10).map((r) => (
+                        <tr key={r.campaign_name} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="p-3 font-medium truncate max-w-[200px]">{r.campaign_name}</td>
+                          <td className="p-3 text-muted-foreground">{r.platform}</td>
+                          <td className="p-3 text-right">{fmtZAR(r.baselineRevenue)}</td>
+                          <td className="p-3 text-right">{fmtZAR(r.flightRevenue)}</td>
+                          <td className="p-3 text-right">
+                            <DeltaIndicator value={r.liftPct} suffix="%" />
+                          </td>
+                          <td className="p-3 text-right font-semibold">{r.incrementalROAS.toFixed(1)}x</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>

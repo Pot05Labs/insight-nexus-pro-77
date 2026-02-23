@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, Upload, Inbox, ArrowUpDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import ExportPdfButton from "@/components/ExportPdfButton";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import PotLabsInsights from "@/components/PotLabsInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import { fmtZAR } from "@/hooks/useSellOutData";
@@ -208,7 +209,12 @@ const CampaignsPage = () => {
               </SelectContent>
             </Select>
           )}
-          <ExportPdfButton targetRef={reportRef} filename="Pot-Labs-Campaigns" />
+          <ExportCsvButton
+            filename="Campaigns"
+            headers={["Campaign", "Platform", "Spend", "Impressions", "Clicks", "Conversions", "Revenue", "ROAS"]}
+            rows={campaignTable.map((c) => [c.campaign_name, c.platform, c.spend, c.impressions, c.clicks, c.conversions, c.revenue, c.roas.toFixed(1)])}
+          />
+          <ExportPdfButton targetRef={reportRef} filename="SignalStack-Campaigns" />
         </div>
       </div>
 

@@ -9,7 +9,7 @@ interface Props {
   title?: string;
 }
 
-const PotLabsInsights = ({ dataSummary, title = "Pot Labs Intelligence" }: Props) => {
+const PotLabsInsights = ({ dataSummary, title = "SignalStack Intelligence" }: Props) => {
   const [insights, setInsights] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 

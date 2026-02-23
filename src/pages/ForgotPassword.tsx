@@ -36,8 +36,8 @@ const ForgotPassword = () => {
             <BarChart3 className="h-4 w-4 text-primary-foreground" />
           </div>
           <div className="flex flex-col leading-none">
-            <span className="font-display text-base font-bold">Pot Labs</span>
-            <span className="text-[10px] text-muted-foreground">A Pot Strategy Company</span>
+            <span className="font-display text-base font-bold">SignalStack</span>
+            <span className="text-[10px] text-muted-foreground">by Pot Labs</span>
           </div>
         </Link>
         <Card>

@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import PotLabsInsights from "@/components/PotLabsInsights";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 
 const COLORS = [
@@ -109,6 +110,13 @@ const ProductsPage = () => {
       <div>
         <h1 className="font-display text-2xl font-bold">Products</h1>
         <p className="text-muted-foreground text-sm">Product and brand performance — market share and mental availability analysis.</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <ExportCsvButton
+          filename="Products"
+          headers={["Product", "Brand", "Category", "Revenue", "Units", "Avg Price", "Market Share %"]}
+          rows={productTable.map((p) => [p.product, p.brand, p.category, p.revenue, p.units, p.avgPrice.toFixed(2), p.marketShare.toFixed(1)])}
+        />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
