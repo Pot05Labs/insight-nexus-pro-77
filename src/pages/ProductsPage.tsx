@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
@@ -32,7 +32,7 @@ const ProductsPage = () => {
   const [sortAsc, setSortAsc] = useState(false);
   const [periodMode, setPeriodMode] = useState<PeriodMode>("MoM");
 
-  useMemo(() => {
+  useEffect(() => {
     if (data.length > 0) setPeriodMode(detectBestPeriodMode(data));
   }, [data.length]);
 

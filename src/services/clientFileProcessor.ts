@@ -980,8 +980,12 @@ export async function processFileClientSide(
       }));
 
       const { error } = await supabase.from("campaign_data_v2").insert(records);
-      if (error) console.error("Campaign insert error:", error.message);
-      else totalInserted += records.length;
+      if (error) {
+        console.error("Campaign insert error:", error.message);
+        if (totalInserted === 0 && i === 0) throw new Error(`Data insert failed: ${error.message}`);
+      } else {
+        totalInserted += records.length;
+      }
     } else {
       const records = batch.map((row) => ({
         user_id: userId,
@@ -1004,8 +1008,12 @@ export async function processFileClientSide(
       }));
 
       const { error } = await supabase.from("sell_out_data").insert(records);
-      if (error) console.error("Sell-out insert error:", error.message);
-      else totalInserted += records.length;
+      if (error) {
+        console.error("Sell-out insert error:", error.message);
+        if (totalInserted === 0 && i === 0) throw new Error(`Data insert failed: ${error.message}`);
+      } else {
+        totalInserted += records.length;
+      }
     }
 
     progress("Inserting data...", 2, totalInserted, jsonRows.length);

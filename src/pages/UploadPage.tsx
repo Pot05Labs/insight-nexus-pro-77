@@ -87,19 +87,37 @@ const UploadPage = () => {
     }
   };
 
+  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+
   const addFiles = useCallback((incoming: FileList | File[]) => {
-    const newFiles: UploadFile[] = Array.from(incoming)
-      .filter((f) => {
-        const ext = f.name.split(".").pop()?.toLowerCase();
-        return ["csv", "xlsx", "xls", "pptx", "pdf"].includes(ext ?? "");
-      })
-      .map((f) => ({
-        file: f, id: crypto.randomUUID(), status: "pending" as const, progress: 0,
-        sourceName: "", sourceType: "retailer", agents: createAgents(),
-      }));
+    const accepted = Array.from(incoming).filter((f) => {
+      const ext = f.name.split(".").pop()?.toLowerCase();
+      return ["csv", "xlsx", "xls", "pptx", "pdf"].includes(ext ?? "");
+    });
+
+    if (accepted.length === 0) {
+      toast({ title: "Unsupported file", description: "Supports CSV, XLSX, PPTX, PDF.", variant: "destructive" });
+      return;
+    }
+
+    // File size validation
+    const oversized = accepted.filter((f) => f.size > MAX_FILE_SIZE);
+    const validFiles = accepted.filter((f) => f.size <= MAX_FILE_SIZE);
+    if (oversized.length > 0) {
+      toast({
+        title: "File too large",
+        description: `${oversized.map((f) => f.name).join(", ")} exceeds 100 MB limit.`,
+        variant: "destructive",
+      });
+    }
+    if (validFiles.length === 0) return;
+
+    const newFiles: UploadFile[] = validFiles.map((f) => ({
+      file: f, id: crypto.randomUUID(), status: "pending" as const, progress: 0,
+      sourceName: "", sourceType: "retailer", agents: createAgents(),
+    }));
 
     if (newFiles.length === 0) {
-      toast({ title: "Unsupported file", description: "Supports CSV, XLSX, PPTX, PDF.", variant: "destructive" });
       return;
     }
 
