@@ -76,19 +76,19 @@ serve(async (req) => {
 
   try {
     const { messages, context } = await req.json();
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+    const OPENROUTER_KEY = Deno.env.get("OPENROUTER");
+    if (!OPENROUTER_KEY) throw new Error("OPENROUTER secret is not configured");
 
     const systemPrompt = context === "query" ? QUERY_SYSTEM : INSIGHTS_SYSTEM;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${OPENROUTER_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "google/gemini-2.5-flash-preview-05-20",
         messages: [
           { role: "system", content: systemPrompt },
           ...messages,
@@ -105,13 +105,13 @@ serve(async (req) => {
         });
       }
       if (response.status === 402 || response.status === 401) {
-        return new Response(JSON.stringify({ error: "OpenAI API key issue. Check configuration." }), {
+        return new Response(JSON.stringify({ error: "OpenRouter API key issue. Check configuration." }), {
           status: response.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const t = await response.text();
-      console.error("OpenAI error:", response.status, t);
+      console.error("OpenRouter error:", response.status, t);
       return new Response(JSON.stringify({ error: "AI service error" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

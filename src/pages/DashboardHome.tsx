@@ -318,7 +318,7 @@ const DashboardHome = () => {
                           <td className="p-3 text-right">{fmtZAR(r.baselineRevenue)}</td>
                           <td className="p-3 text-right">{fmtZAR(r.flightRevenue)}</td>
                           <td className="p-3 text-right">
-                            <DeltaIndicator value={r.liftPct} suffix="%" />
+                            <DeltaIndicator delta={r.liftPct} />
                           </td>
                           <td className="p-3 text-right font-semibold">{r.incrementalROAS.toFixed(1)}x</td>
                         </tr>
