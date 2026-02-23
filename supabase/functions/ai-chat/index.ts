@@ -77,7 +77,7 @@ serve(async (req) => {
   try {
     const { messages, context } = await req.json();
     const OPENROUTER_KEY = Deno.env.get("OPENROUTER");
-    if (!OPENROUTER_KEY) throw new Error("OPENROUTER secret is not configured");
+    if (!OPENROUTER_KEY) throw new Error("OPENROUTER secret is not configured. Set it in Supabase Edge Function secrets.");
 
     const systemPrompt = context === "query" ? QUERY_SYSTEM : INSIGHTS_SYSTEM;
 
@@ -86,6 +86,8 @@ serve(async (req) => {
       headers: {
         Authorization: `Bearer ${OPENROUTER_KEY}`,
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://signalstack.africa",
+        "X-Title": "SignalStack",
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash-preview-05-20",
@@ -105,7 +107,7 @@ serve(async (req) => {
         });
       }
       if (response.status === 402 || response.status === 401) {
-        return new Response(JSON.stringify({ error: "OpenRouter API key issue. Check configuration." }), {
+        return new Response(JSON.stringify({ error: "OpenRouter API key issue. Check OPENROUTER secret in Supabase." }), {
           status: response.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
