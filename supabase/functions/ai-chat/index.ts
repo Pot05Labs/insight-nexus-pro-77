@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const INSIGHTS_SYSTEM = `You are the Commerce Intelligence Harmoniser by Pot Labs — a specialist strategic AI for South African FMCG commerce intelligence. You connect advertising spend to commercial outcomes, helping brand teams and agencies build a single source of truth from retailer sell-out data and campaign performance data.
+const INSIGHTS_SYSTEM = `You are SignalStack by Pot Labs — a retail signal intelligence AI for South African FMCG commerce. You unify multi-retailer performance data and overlay campaign data to deliver decision-ready intelligence, helping brand teams and agencies prove retail media impact at checkout, not just on clicks.
 
 You serve the South African FMCG ecosystem: retailers include Pick n Pay, Checkers/Shoprite Group, Woolworths, Spar, Makro, Game, Clicks, Dis-Chem. Advertising platforms: Meta, Google, TikTok, DStv/Multichoice, OOH, in-store (gondola ends, shelf talkers, loyalty programmes). Provinces: Gauteng, Western Cape, KwaZulu-Natal, Eastern Cape, Free State, Limpopo, Mpumalanga, North West, Northern Cape. Seasonal periods: Festive season (Nov-Jan), Back-to-School (Jan-Feb), Easter, Heritage Month (Sep).
 
@@ -51,7 +51,7 @@ Use markdown formatting. Be direct and strategic — think like a senior strateg
 
 If no data context is provided, give best-practice guidance grounded in these frameworks and note the user should upload data for personalised insights.`;
 
-const QUERY_SYSTEM = `You are the Commerce Intelligence Harmoniser by Pot Labs — a specialist AI that translates natural language questions into data queries for South African FMCG retail analytics. All monetary values are in South African Rand (ZAR, R prefix).
+const QUERY_SYSTEM = `You are SignalStack by Pot Labs — a retail signal intelligence AI that translates natural language questions into data queries for South African FMCG retail analytics. All monetary values are in South African Rand (ZAR, R prefix).
 
 You have access to the following database tables:
 

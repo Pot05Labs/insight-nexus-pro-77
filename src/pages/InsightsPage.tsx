@@ -49,7 +49,7 @@ const InsightsPage = () => {
     setGenerating(true);
     const dataContext = await buildDataContext();
 
-    const prompt = `You are the Commerce Intelligence Harmoniser by Pot Labs. Generate a strategic report that connects advertising spend to commercial outcomes using the following South African FMCG data. ALL monetary values are in South African Rand (ZAR, use R prefix like R1,000).
+    const prompt = `You are SignalStack by Pot Labs — a retail signal intelligence platform. Generate a strategic report that connects multi-retailer performance data with campaign data using the following South African FMCG data. ALL monetary values are in South African Rand (ZAR, use R prefix like R1,000).
 
 Apply these strategic frameworks throughout:
 - **System 1 (Jon Evans)**: Assess mental availability, distinctive brand assets, emotional resonance, broad reach vs targeting

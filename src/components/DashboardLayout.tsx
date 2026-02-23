@@ -96,8 +96,8 @@ const DashboardLayout = () => {
           </div>
           {!collapsed && (
             <div className="flex flex-col leading-none min-w-0">
-              <span className="font-display text-sm font-bold text-sidebar-foreground truncate">Pot Labs</span>
-              <span className="text-[10px] text-sidebar-foreground/50 truncate">A Pot Strategy Company</span>
+              <span className="font-display text-sm font-bold text-sidebar-foreground truncate">SignalStack</span>
+              <span className="text-[10px] text-sidebar-foreground/50 truncate">by Pot Labs</span>
             </div>
           )}
         </div>
