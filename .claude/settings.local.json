@@ -15,7 +15,10 @@
       "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main show HEAD --stat)",
       "Bash(git -C /Users/macm2/Downloads/insight-nexus-pro-77-main diff --name-only HEAD -- src/)",
       "Bash(python3:*)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
