@@ -4,9 +4,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Inbox } from "lucide-react";
-import PotLabsInsights from "@/components/PotLabsInsights";
+import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 
 const GeographyPage = () => {
   const { data, loading } = useSellOutData();
@@ -41,8 +42,6 @@ const GeographyPage = () => {
     units: unitsByRegion[r.region] ?? 0,
     aov: (unitsByRegion[r.region] ?? 0) > 0 ? r.revenue / unitsByRegion[r.region] : 0,
   }));
-
-  const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
 
   const dataSummary = `Top Stores: ${storeData.map((s) => `${s.store} (${fmtZAR(s.revenue)})`).join(", ")}. Regions: ${regionData.map((r) => `${r.region} (${fmtZAR(r.revenue)})`).join(", ")}.`;
 
@@ -124,7 +123,7 @@ const GeographyPage = () => {
         </CardContent>
       </Card>
 
-      <PotLabsInsights dataSummary={dataSummary} title="Geographic Insights" />
+      <SignalStackInsights dataSummary={dataSummary} title="Geographic Insights" />
     </div>
   );
 };

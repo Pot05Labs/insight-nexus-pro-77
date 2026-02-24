@@ -6,6 +6,8 @@ import { Inbox, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import SignalStackInsights from "@/components/SignalStackInsights";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 import { streamAiChat } from "@/services/aiChatStream";
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
@@ -31,8 +33,6 @@ const BehaviourPage = () => {
   const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
   const compData = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
     .map(([name, value]) => ({ name, value: Math.round(value) }));
-
-  const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
 
   const generateSegments = async () => {
     setSegLoading(true);
@@ -143,6 +143,12 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           )}
         </CardContent>
       </Card>
+
+      {/* SignalStack Intelligence */}
+      <SignalStackInsights
+        dataSummary={`Day-of-week revenue: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Category mix: ${compData.slice(0, 8).map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${data.length}.`}
+        title="Behavioural Insights"
+      />
     </div>
   );
 };

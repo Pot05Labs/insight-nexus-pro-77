@@ -10,13 +10,14 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Skeleton } from "@/components/ui/skeleton";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
-import PotLabsInsights from "@/components/PotLabsInsights";
+import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { supabase } from "@/integrations/supabase/client";
 import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 import DataQualityPanel from "@/components/DataQualityPanel";
 
 type CampaignRow = {
@@ -45,16 +46,22 @@ const DashboardHome = () => {
 
   const fetchCampaigns = async () => {
     setCampaignLoading(true);
-    // Scope campaigns to the same project as sell-out data
-    const { data: projects } = await supabase.from("projects").select("id").limit(1);
-    const projectId = projects?.[0]?.id;
-    let query = supabase
-      .from("campaign_data_v2")
-      .select("flight_start,flight_end,platform,campaign_name,spend,impressions,clicks,conversions,revenue");
-    if (projectId) query = query.eq("project_id", projectId);
-    const { data: cd } = await query.limit(5000);
-    setCampaigns(cd ?? []);
-    setCampaignLoading(false);
+    try {
+      // Scope campaigns to the same project as sell-out data
+      const { data: projects } = await supabase.from("projects").select("id").limit(1);
+      const projectId = projects?.[0]?.id;
+      let query = supabase
+        .from("campaign_data_v2")
+        .select("flight_start,flight_end,platform,campaign_name,spend,impressions,clicks,conversions,revenue");
+      if (projectId) query = query.eq("project_id", projectId);
+      const { data: cd } = await query.limit(5000);
+      setCampaigns(cd ?? []);
+    } catch (err) {
+      console.error("[DashboardHome] Failed to fetch campaigns:", err);
+      setCampaigns([]);
+    } finally {
+      setCampaignLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -172,13 +179,6 @@ const DashboardHome = () => {
 
   // Data summary for AI
   const dataSummary = `Total Revenue: ${fmtZAR(totalRevenue)}, Units Sold: ${totalUnits.toLocaleString()}, Avg Order Value: ${fmtZAR(avgOrderValue)}, Unique Products: ${uniqueProducts}. Top Brands: ${brandData.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)})`).join(", ")}. Categories: ${categoryData.slice(0, 5).map((c) => `${c.category} (${fmtZAR(c.revenue)})`).join(", ")}. Campaign Spend: ${fmtZAR(totalSpend)}, Impressions: ${totalImpressions.toLocaleString()}, Clicks: ${totalClicks.toLocaleString()}, CTR: ${ctr.toFixed(2)}%, ROAS: ${roas.toFixed(1)}x, iROAS: ${iROAS.toFixed(1)}x, eCPM: ${fmtZAR(eCPM)}, CPS: ${fmtZAR(cps)}.${attributionResults.length > 0 ? ` Top campaigns by lift: ${attributionResults.slice(0, 3).map((r) => `${r.campaign_name} (${r.liftPct.toFixed(0)}% lift, ${r.incrementalROAS.toFixed(1)}x iROAS)`).join(", ")}.` : ""}`;
-
-  const chartTooltipStyle = {
-    backgroundColor: "hsl(var(--card))",
-    border: "1px solid hsl(var(--border))",
-    borderRadius: "0.5rem",
-    fontSize: "0.75rem",
-  };
 
   const isLoading = loading || campaignLoading;
 
@@ -438,7 +438,7 @@ const DashboardHome = () => {
             </div>
 
             {/* Strategic Insights */}
-            <PotLabsInsights dataSummary={dataSummary} title="Strategic Insights" />
+            <SignalStackInsights dataSummary={dataSummary} title="Strategic Insights" />
 
             {/* Activity Log */}
             <ActivityPanel />

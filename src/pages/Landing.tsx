@@ -429,13 +429,12 @@ const Landing = () => {
       <footer className="border-t border-border/40 py-8">
         <div className="container flex items-center justify-between text-sm text-muted-foreground">
           <div>
-            <span>&copy; 2026 Pot Labs.</span>{" "}
-            <span className="text-muted-foreground/60">A Pot Strategy company.</span>
+            <span>&copy; 2026 SignalStack by Pot Labs.</span>
           </div>
           <div className="flex gap-6">
-            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
-            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
-            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="#" title="Coming soon" className="hover:text-foreground transition-colors">Privacy</a>
+            <a href="#" title="Coming soon" className="hover:text-foreground transition-colors">Terms</a>
+            <a href="mailto:hello@potstrategy.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </div>
       </footer>

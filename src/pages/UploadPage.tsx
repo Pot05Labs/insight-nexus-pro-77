@@ -238,27 +238,33 @@ const UploadPage = () => {
     if (!deleteTarget) return;
     setDeleting(true);
 
-    // Delete related data first
-    await Promise.all([
-      supabase.from("sell_out_data").delete().eq("upload_id", deleteTarget.id),
-      supabase.from("campaign_data_v2").delete().eq("upload_id", deleteTarget.id),
-      supabase.from("harmonized_sales").delete().eq("upload_id", deleteTarget.id),
-      supabase.from("campaign_data").delete().eq("upload_id", deleteTarget.id),
-    ]);
+    try {
+      // Delete related data first
+      await Promise.all([
+        supabase.from("sell_out_data").delete().eq("upload_id", deleteTarget.id),
+        supabase.from("campaign_data_v2").delete().eq("upload_id", deleteTarget.id),
+        supabase.from("harmonized_sales").delete().eq("upload_id", deleteTarget.id),
+        supabase.from("campaign_data").delete().eq("upload_id", deleteTarget.id),
+      ]);
 
-    // Delete from storage
-    const { data: upload } = await supabase.from("data_uploads").select("storage_path").eq("id", deleteTarget.id).single();
-    if (upload?.storage_path) {
-      await supabase.storage.from("uploads").remove([upload.storage_path]);
+      // Delete from storage
+      const { data: upload } = await supabase.from("data_uploads").select("storage_path").eq("id", deleteTarget.id).single();
+      if (upload?.storage_path) {
+        await supabase.storage.from("uploads").remove([upload.storage_path]);
+      }
+
+      // Delete upload record
+      await supabase.from("data_uploads").delete().eq("id", deleteTarget.id);
+
+      toast({ title: "File deleted", description: `${deleteTarget.file_name} and related data removed.` });
+    } catch (err) {
+      console.error("[UploadPage] Delete failed:", err);
+      toast({ title: "Delete failed", description: "Could not delete file. Please try again.", variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+      fetchUploads();
     }
-
-    // Delete upload record
-    await supabase.from("data_uploads").delete().eq("id", deleteTarget.id);
-
-    setDeleting(false);
-    setDeleteTarget(null);
-    toast({ title: "File deleted", description: `${deleteTarget.file_name} and related data removed.` });
-    fetchUploads();
   };
 
   const pendingCount = files.filter((f) => f.status === "pending").length;

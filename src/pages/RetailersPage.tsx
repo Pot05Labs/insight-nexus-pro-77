@@ -4,9 +4,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
-import PotLabsInsights from "@/components/PotLabsInsights";
+import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 
@@ -80,7 +81,6 @@ const RetailersPage = () => {
   const radarRetailers = tableData.slice(0, 6).map((r) => r.retailer);
   const radarColors = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(175 65% 45%)"];
 
-  const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
   const hasData = data.length > 0;
   const dataSummary = `Retailers: ${chartData.slice(0, 5).map((r) => `${r.retailer} (${fmtZAR(r.revenue)})`).join(", ")}. Total retailers: ${chartData.length}. Benchmarking index: ${tableData.slice(0, 3).map((r) => `${r.retailer} index ${r.index}`).join(", ")}.`;
 
@@ -186,7 +186,7 @@ const RetailersPage = () => {
         </CardContent>
       </Card>
 
-      <PotLabsInsights dataSummary={dataSummary} />
+      <SignalStackInsights dataSummary={dataSummary} />
     </div>
   );
 };

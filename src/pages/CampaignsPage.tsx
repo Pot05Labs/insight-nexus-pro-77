@@ -15,9 +15,10 @@ import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, Uplo
 import { Link } from "react-router-dom";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
-import PotLabsInsights from "@/components/PotLabsInsights";
+import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import { fmtZAR } from "@/hooks/useSellOutData";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 import { useSellOutData } from "@/hooks/useSellOutData";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 
@@ -175,13 +176,6 @@ const CampaignsPage = () => {
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(false); }
-  };
-
-  const chartTooltipStyle = {
-    backgroundColor: "hsl(var(--card))",
-    border: "1px solid hsl(var(--border))",
-    borderRadius: "0.5rem",
-    fontSize: "0.75rem",
   };
 
   const dataSummary = `Campaign Performance: Total Spend ${fmtZAR(totalSpend)}, Impressions ${totalImpressions.toLocaleString()}, Clicks ${totalClicks.toLocaleString()}, CTR ${ctr.toFixed(2)}%, ROAS ${roas.toFixed(1)}x. Platforms: ${platformData.map((p) => `${p.platform}: ${fmtZAR(p.spend)} spend`).join(", ")}. Campaign Attribution: ${attribution.slice(0, 3).map((a) => `${a.campaign_name}: ${fmtZAR(a.incrementalRevenue)} incremental revenue, ${a.liftPct.toFixed(1)}% lift`).join("; ")}.`;
@@ -426,7 +420,7 @@ const CampaignsPage = () => {
             </Card>
 
             {/* Pot Labs Insights */}
-            <PotLabsInsights dataSummary={dataSummary} title="Campaign Intelligence" />
+            <SignalStackInsights dataSummary={dataSummary} title="Campaign Intelligence" />
           </>
         )}
       </div>

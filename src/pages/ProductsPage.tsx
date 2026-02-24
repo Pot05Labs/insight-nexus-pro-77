@@ -5,9 +5,10 @@ import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Toolti
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import PotLabsInsights from "@/components/PotLabsInsights";
+import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 
 const COLORS = [
   "hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))",
@@ -93,7 +94,6 @@ const ProductsPage = () => {
     return arr;
   }, [data, sortKey, sortAsc]);
 
-  const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
   const hasData = data.length > 0;
 
   const dataSummary = `Top 10 Products: ${top10.map((p) => `${p.name} (${fmtZAR(p.revenue)})`).join(", ")}. Categories: ${categoryData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Brand rankings: ${brandRankings.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)}, ${b.marketShare.toFixed(1)}% share)`).join(", ")}. Total Revenue: ${fmtZAR(totalRevenue)}.`;
@@ -238,7 +238,7 @@ const ProductsPage = () => {
         </CardContent>
       </Card>
 
-      <PotLabsInsights dataSummary={dataSummary} />
+      <SignalStackInsights dataSummary={dataSummary} />
     </div>
   );
 };

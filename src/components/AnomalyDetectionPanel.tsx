@@ -8,6 +8,7 @@ import { detectAnomalies, buildDailyRevenueSeries, type AnomalyPoint } from "@/l
 import { fmtZAR } from "@/hooks/useSellOutData";
 import { streamAiChat } from "@/services/aiChatStream";
 import type { SellOutRow } from "@/hooks/useSellOutData";
+import { chartTooltipStyle } from "@/lib/chart-utils";
 
 interface AnomalyDetectionPanelProps {
   data: SellOutRow[];
@@ -57,8 +58,6 @@ const AnomalyDetectionPanel = ({ data }: AnomalyDetectionPanelProps) => {
   };
 
   if (revenueSeries.length < 5) return null;
-
-  const chartTooltipStyle = { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.75rem" };
 
   return (
     <Card>

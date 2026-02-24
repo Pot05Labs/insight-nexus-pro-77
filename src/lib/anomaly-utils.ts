@@ -56,7 +56,7 @@ export function detectAnomalies(
     if (absZ >= zThreshold) {
       const type = zScore > 0 ? "spike" : "drop";
       const severity = absZ >= 3 ? "high" : absZ >= 2.5 ? "medium" : "low";
-      const pctDiff = ((point.value - mean) / mean) * 100;
+      const pctDiff = mean !== 0 ? ((point.value - mean) / mean) * 100 : 0;
       const direction = type === "spike" ? "above" : "below";
 
       anomalies.push({

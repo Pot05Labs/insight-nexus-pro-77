@@ -35,7 +35,7 @@ const ExportPdfButton = ({ targetRef, filename = "report" }: ExportPdfButtonProp
       <head>
         <title>${filename}</title>
         <style>
-          body { font-family: 'DM Sans', sans-serif; margin: 2rem; color: #1a1a2e; }
+          body { font-family: 'Avenir', 'Avenir Next', sans-serif; margin: 2rem; color: #1a1a2e; }
           * { box-sizing: border-box; }
           @media print {
             body { margin: 0; padding: 1rem; }

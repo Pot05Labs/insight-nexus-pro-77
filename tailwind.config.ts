@@ -16,6 +16,7 @@ export default {
       fontFamily: {
         sans: ["Avenir", "Avenir Next", "Gill Sans", "sans-serif"],
         heading: ["Avenir Next", "Avenir", "Gill Sans", "sans-serif"],
+        display: ["Avenir Next", "Avenir", "Gill Sans", "sans-serif"],
         body: ["Avenir", "Avenir Next", "Gill Sans", "sans-serif"],
         accent: ["Gill Sans", "Avenir", "Avenir Next", "sans-serif"],
       },

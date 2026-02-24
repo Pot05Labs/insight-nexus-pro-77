@@ -9,7 +9,7 @@ interface Props {
   title?: string;
 }
 
-const PotLabsInsights = ({ dataSummary, title = "SignalStack Intelligence" }: Props) => {
+const SignalStackInsights = ({ dataSummary, title = "SignalStack Intelligence" }: Props) => {
   const [insights, setInsights] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -79,4 +79,4 @@ Data:\n${dataSummary}`,
   );
 };
 
-export default PotLabsInsights;
+export default SignalStackInsights;
