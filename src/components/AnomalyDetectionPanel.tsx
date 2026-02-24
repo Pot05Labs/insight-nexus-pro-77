@@ -3,12 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, Loader2 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceArea } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { detectAnomalies, buildDailyRevenueSeries, type AnomalyPoint } from "@/lib/anomaly-utils";
 import { fmtZAR } from "@/hooks/useSellOutData";
 import { streamAiChat } from "@/services/aiChatStream";
 import type { SellOutRow } from "@/hooks/useSellOutData";
-import { chartTooltipStyle } from "@/lib/chart-utils";
+import { chartTooltipStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
 
 interface AnomalyDetectionPanelProps {
   data: SellOutRow[];
@@ -74,17 +74,17 @@ const AnomalyDetectionPanel = ({ data }: AnomalyDetectionPanelProps) => {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Revenue chart with anomaly highlights */}
-        <ResponsiveContainer width="100%" height={250}>
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT.compact}>
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <CartesianGrid {...chartGridProps} />
             <XAxis dataKey="date" className="text-[10px] fill-muted-foreground" tickFormatter={(d) => d.slice(5)} />
-            <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-            <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} labelFormatter={(l) => `Date: ${l}`} />
+            <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+            <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [v != null ? fmtZAR(v) : "—", "Revenue"]} labelFormatter={(l) => `Date: ${l}`} />
             <ReferenceLine y={result.mean} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" label={{ value: "Avg", position: "right", className: "text-[10px] fill-muted-foreground" }} />
-            <ReferenceLine y={result.mean + 2 * result.stdDev} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.5} />
-            <ReferenceLine y={Math.max(0, result.mean - 2 * result.stdDev)} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.5} />
-            <Line dataKey="value" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} name="Revenue" />
-            <Line dataKey="anomalyValue" stroke="hsl(var(--destructive))" strokeWidth={0} dot={{ r: 5, fill: "hsl(var(--destructive))", stroke: "hsl(var(--destructive))" }} name="Anomaly" />
+            <ReferenceLine y={result.mean + 2 * result.stdDev} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.4} />
+            <ReferenceLine y={Math.max(0, result.mean - 2 * result.stdDev)} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.4} />
+            <Line dataKey="value" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+            <Line dataKey="anomalyValue" stroke="hsl(var(--destructive))" strokeWidth={0} dot={{ r: 5, fill: "hsl(var(--destructive))", stroke: "hsl(var(--destructive))" }} name="Anomaly" animationDuration={CHART_ANIMATION_MS} />
           </LineChart>
         </ResponsiveContainer>
 

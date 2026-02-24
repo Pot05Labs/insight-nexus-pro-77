@@ -7,10 +7,9 @@ import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
-import { chartTooltipStyle } from "@/lib/chart-utils";
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel } from "@/lib/chart-utils";
 import { streamAiChat } from "@/services/aiChatStream";
 
-const COLORS = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const BehaviourPage = () => {
@@ -24,6 +23,7 @@ const BehaviourPage = () => {
   data.forEach((r) => {
     if (!r.date) return;
     const d = new Date(r.date);
+    if (isNaN(d.getTime())) return;
     const day = DAYS[d.getDay()];
     dayMap[day] = (dayMap[day] ?? 0) + Number(r.revenue ?? 0);
   });
@@ -88,10 +88,10 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Order Composition</CardTitle></CardHeader>
           <CardContent className="flex justify-center">
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <PieChart>
-                <Pie data={compData} cx="50%" cy="50%" innerRadius={55} outerRadius={105} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} className="text-[10px]">
-                  {compData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Pie data={compData} cx="50%" cy="50%" innerRadius={55} outerRadius={105} dataKey="value" nameKey="name" label={renderPieLabel} labelLine={false} className="text-[10px]" animationDuration={CHART_ANIMATION_MS}>
+                  {compData.map((entry, i) => <Cell key={entry.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
               </PieChart>
@@ -103,13 +103,13 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Sales Distribution by Day of Week</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={dayData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="day" className="text-xs fill-muted-foreground" />
-                <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                <CartesianGrid {...chartGridProps} />
+                <XAxis dataKey="day" className={axisClassName} />
+                <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

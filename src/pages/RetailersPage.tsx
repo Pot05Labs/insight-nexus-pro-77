@@ -7,7 +7,7 @@ import { ArrowUpDown, Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartTooltipStyle } from "@/lib/chart-utils";
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 
@@ -108,13 +108,13 @@ const RetailersPage = () => {
       <Card>
         <CardHeader><CardTitle className="font-display text-base">Revenue by Retailer</CardTitle></CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
             <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="retailer" className="text-xs fill-muted-foreground" />
-              <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-              <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-              <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              <CartesianGrid {...chartGridProps} />
+              <XAxis dataKey="retailer" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
+              <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+              <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+              <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -125,9 +125,9 @@ const RetailersPage = () => {
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Cross-Retailer Benchmarking</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={350}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.full + 50}>
               <RadarChart data={radarData}>
-                <PolarGrid className="stroke-border" />
+                <PolarGrid className="stroke-border" strokeOpacity={0.5} />
                 <PolarAngleAxis dataKey="dimension" className="text-xs fill-muted-foreground" />
                 <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} />
                 {radarRetailers.map((retailer, i) => (
@@ -135,14 +135,15 @@ const RetailersPage = () => {
                     key={retailer}
                     name={retailer}
                     dataKey={retailer}
-                    stroke={radarColors[i % radarColors.length]}
-                    fill={radarColors[i % radarColors.length]}
+                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                    fill={CHART_COLORS[i % CHART_COLORS.length]}
                     fillOpacity={0.1}
                     strokeWidth={2}
+                    animationDuration={CHART_ANIMATION_MS}
                   />
                 ))}
                 <Legend />
-                <Tooltip contentStyle={chartTooltipStyle} />
+                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [`${v.toFixed(0)}/100`, "Index"]} />
               </RadarChart>
             </ResponsiveContainer>
           </CardContent>

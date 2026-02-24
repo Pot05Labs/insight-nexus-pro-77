@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { ShoppingCart, TrendingUp, DollarSign, Package, Upload, Inbox } from "lucide-react";
+import { fmtZAR } from "@/hooks/useSellOutData";
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
 import { Link } from "react-router-dom";
 
 type Sale = { date: string; sku: string; product_name: string; channel: string; revenue: number; units_sold: number; returns: number; cost: number };
@@ -95,7 +97,7 @@ const SalesExplorer = () => {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: "Total Revenue", value: `$${(totalRevenue / 1000).toFixed(1)}K`, icon: DollarSign },
+              { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign },
               { label: "Units Sold", value: totalUnits.toLocaleString(), icon: ShoppingCart },
               { label: "Returns", value: totalReturns.toLocaleString(), icon: Package },
               { label: "Gross Margin", value: `${avgMargin.toFixed(1)}%`, icon: TrendingUp },
@@ -114,15 +116,15 @@ const SalesExplorer = () => {
 
           {channelBreakdown.length > 0 && (
             <Card>
-              <CardHeader><CardTitle className="font-display text-lg">Revenue by Channel</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="font-display text-base">Revenue by Channel</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                   <BarChart data={channelBreakdown}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="channel" className="text-xs fill-muted-foreground" />
-                    <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} />
-                    <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "0.5rem", fontSize: "0.875rem" }} formatter={(v: number) => [`$${(v / 1000).toFixed(1)}K`]} />
-                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    <CartesianGrid {...chartGridProps} />
+                    <XAxis dataKey="channel" className={axisClassName} />
+                    <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                    <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -130,7 +132,7 @@ const SalesExplorer = () => {
           )}
 
           <Card>
-            <CardHeader><CardTitle className="font-display text-lg">Sales Details</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="font-display text-base">Sales Details</CardTitle></CardHeader>
             <CardContent>
               <div className="rounded-lg border overflow-auto">
                 <Table>
@@ -147,7 +149,7 @@ const SalesExplorer = () => {
                         <TableCell><Badge variant="outline">{s.sku}</Badge></TableCell>
                         <TableCell>{s.product_name}</TableCell>
                         <TableCell>{s.channel}</TableCell>
-                        <TableCell className="text-right font-medium">${s.revenue.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-medium">{fmtZAR(s.revenue)}</TableCell>
                         <TableCell className="text-right">{s.units_sold}</TableCell>
                         <TableCell className="text-right">{s.returns}</TableCell>
                       </TableRow>

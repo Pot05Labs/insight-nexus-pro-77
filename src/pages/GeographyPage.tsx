@@ -7,7 +7,7 @@ import { Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartTooltipStyle } from "@/lib/chart-utils";
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
 
 const GeographyPage = () => {
   const { data, loading } = useSellOutData();
@@ -66,13 +66,13 @@ const GeographyPage = () => {
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Top 5 Stores by Revenue</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={storeData} layout="vertical" margin={{ left: 100 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis type="number" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
+                <CartesianGrid {...chartGridProps} />
+                <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="store" className="text-[10px] fill-muted-foreground" width={95} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--chart-5))" radius={[0, 4, 4, 0]} />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Bar dataKey="revenue" fill="hsl(var(--chart-5))" radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -81,13 +81,13 @@ const GeographyPage = () => {
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Revenue by Province</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={regionData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="region" className="text-xs fill-muted-foreground" />
-                <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                <CartesianGrid {...chartGridProps} />
+                <XAxis dataKey="region" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
+                <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Bar dataKey="revenue" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

@@ -8,13 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartTooltipStyle } from "@/lib/chart-utils";
-
-const COLORS = [
-  "hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(175 65% 45%)",
-  "hsl(38 80% 60%)", "hsl(262 40% 55%)", "hsl(199 60% 55%)", "hsl(349 55% 60%)",
-];
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel } from "@/lib/chart-utils";
 
 type SortKey = "product" | "brand" | "category" | "revenue" | "units" | "avgPrice" | "marketShare";
 
@@ -124,13 +118,13 @@ const ProductsPage = () => {
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Top 10 Products by Revenue</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
               <BarChart data={top10} layout="vertical" margin={{ left: 100 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis type="number" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
+                <CartesianGrid {...chartGridProps} />
+                <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="name" className="text-[10px] fill-muted-foreground" width={95} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -140,10 +134,10 @@ const ProductsPage = () => {
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Revenue by Category</CardTitle></CardHeader>
           <CardContent className="flex justify-center">
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
               <PieChart>
-                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={110} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} className="text-[10px]">
-                  {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={110} dataKey="value" nameKey="name" label={renderPieLabel} labelLine={false} className="text-[10px]" animationDuration={CHART_ANIMATION_MS}>
+                  {categoryData.map((entry, i) => <Cell key={entry.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
               </PieChart>
@@ -157,13 +151,13 @@ const ProductsPage = () => {
         <Card>
           <CardHeader><CardTitle className="font-display text-base">Top Brands by Revenue</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={320}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
               <BarChart data={brandChartData} layout="vertical" margin={{ left: 100 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis type="number" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
+                <CartesianGrid {...chartGridProps} />
+                <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="brand" className="text-[10px] fill-muted-foreground" width={95} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Revenue" />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

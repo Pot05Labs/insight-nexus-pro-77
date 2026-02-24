@@ -30,7 +30,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   handleGoHome = () => {
     this.setState({ hasError: false, error: null });
-    window.location.href = "/";
+    window.location.href = "/dashboard";
   };
 
   render() {
@@ -68,7 +68,7 @@ class ErrorBoundary extends Component<Props, State> {
               </p>
             </div>
 
-            {process.env.NODE_ENV === "development" && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <pre className="text-xs text-left bg-muted rounded-lg p-4 overflow-auto max-h-40 text-destructive">
                 {this.state.error.message}
               </pre>

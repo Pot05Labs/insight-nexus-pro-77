@@ -17,9 +17,8 @@ import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
-import { fmtZAR } from "@/hooks/useSellOutData";
-import { chartTooltipStyle } from "@/lib/chart-utils";
-import { useSellOutData } from "@/hooks/useSellOutData";
+import { fmtZAR, useSellOutData } from "@/hooks/useSellOutData";
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 
 type CampaignRow = {
@@ -47,16 +46,23 @@ const CampaignsPage = () => {
   const { data: sellOutData } = useSellOutData();
 
   useEffect(() => {
-    const fetch = async () => {
+    const loadCampaigns = async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from("campaign_data_v2")
-        .select("flight_start,flight_end,platform,channel,campaign_name,impressions,clicks,spend,conversions,revenue")
-        .limit(1000);
-      setCampaigns(data ?? []);
-      setLoading(false);
+      try {
+        const { data, error } = await supabase
+          .from("campaign_data_v2")
+          .select("flight_start,flight_end,platform,channel,campaign_name,impressions,clicks,spend,conversions,revenue")
+          .limit(5000);
+        if (error) throw error;
+        setCampaigns(data ?? []);
+      } catch (err) {
+        console.error("[CampaignsPage] Failed to fetch campaigns:", err);
+        setCampaigns([]);
+      } finally {
+        setLoading(false);
+      }
     };
-    fetch();
+    loadCampaigns();
   }, []);
 
   const platforms = useMemo(() => [...new Set(campaigns.map((c) => c.platform).filter(Boolean))].sort() as string[], [campaigns]);
@@ -303,17 +309,17 @@ const CampaignsPage = () => {
               <Card className="mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Campaign Performance Over Time</CardTitle></CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <LineChart data={timeMap}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="month" className="text-xs fill-muted-foreground" />
-                      <YAxis yAxisId="spend" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <YAxis yAxisId="impressions" orientation="right" className="text-xs fill-muted-foreground" tickFormatter={(v) => v > 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                      <CartesianGrid {...chartGridProps} />
+                      <XAxis dataKey="month" className={axisClassName} />
+                      <YAxis yAxisId="spend" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                      <YAxis yAxisId="impressions" orientation="right" className={axisClassName} tickFormatter={(v) => v > 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
                       <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [name === "Impressions" ? v.toLocaleString() : fmtZAR(v), name]} />
                       <Legend />
-                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Spend" dot={{ r: 2 }} />
-                      <Line yAxisId="spend" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} name="Revenue" dot={{ r: 2 }} />
-                      <Line yAxisId="impressions" dataKey="impressions" stroke="hsl(var(--chart-2))" strokeWidth={1.5} strokeDasharray="4 4" name="Impressions" dot={false} />
+                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Spend" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="spend" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} name="Revenue" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="impressions" dataKey="impressions" stroke="hsl(var(--chart-2))" strokeWidth={1.5} strokeDasharray="4 4" name="Impressions" dot={false} animationDuration={CHART_ANIMATION_MS} />
                     </LineChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -325,15 +331,15 @@ const CampaignsPage = () => {
               <Card className="mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Platform Breakdown</CardTitle></CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                     <BarChart data={platformData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="platform" className="text-xs fill-muted-foreground" />
-                      <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
+                      <CartesianGrid {...chartGridProps} />
+                      <XAxis dataKey="platform" className={axisClassName} />
+                      <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                      <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
                       <Legend />
-                      <Bar dataKey="spend" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Spend" />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Revenue" />
+                      <Bar dataKey="spend" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Spend" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

@@ -17,7 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
-import { chartTooltipStyle } from "@/lib/chart-utils";
+import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
 import DataQualityPanel from "@/components/DataQualityPanel";
 
 type CampaignRow = {
@@ -374,16 +374,16 @@ const DashboardHome = () => {
               <Card className="mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Revenue vs Ad Spend Over Time</CardTitle></CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <LineChart data={timeData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="month" className="text-xs fill-muted-foreground" />
-                      <YAxis yAxisId="revenue" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <YAxis yAxisId="spend" orientation="right" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
+                      <CartesianGrid {...chartGridProps} />
+                      <XAxis dataKey="month" className={axisClassName} />
+                      <YAxis yAxisId="revenue" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                      <YAxis yAxisId="spend" orientation="right" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
                       <Legend />
-                      <Line yAxisId="revenue" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: "hsl(var(--primary))" }} name="Revenue" />
-                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: "hsl(var(--chart-4))" }} name="Ad Spend" />
+                      <Line yAxisId="revenue" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3, fill: "hsl(var(--primary))" }} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: "hsl(var(--chart-4))" }} name="Ad Spend" animationDuration={CHART_ANIMATION_MS} />
                     </LineChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -395,13 +395,13 @@ const DashboardHome = () => {
               <Card className="mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Top-Performing Brands by Revenue</CardTitle></CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <BarChart data={brandData} layout="vertical" margin={{ left: 80 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis type="number" className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <YAxis type="category" dataKey="brand" className="text-xs fill-muted-foreground" width={75} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Revenue" />
+                      <CartesianGrid {...chartGridProps} />
+                      <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                      <YAxis type="category" dataKey="brand" className={axisClassName} width={75} />
+                      <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -413,13 +413,13 @@ const DashboardHome = () => {
               <Card className="mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Category Analysis</CardTitle></CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                     <BarChart data={categoryData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="category" className="text-xs fill-muted-foreground" />
-                      <YAxis className="text-xs fill-muted-foreground" tickFormatter={(v) => fmtZAR(v)} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                      <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Revenue" />
+                      <CartesianGrid {...chartGridProps} />
+                      <XAxis dataKey="category" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
+                      <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                      <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                      <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

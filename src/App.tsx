@@ -26,7 +26,16 @@ import PricingPage from "./pages/PricingPage";
 import SubscriptionPaywall from "./components/SubscriptionPaywall";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,   // 5 minutes — avoid unnecessary refetches during demos
+      gcTime: 10 * 60 * 1000,      // 10 minutes — keep cache warm
+      retry: 1,                     // single retry (default 3 is too aggressive)
+      refetchOnWindowFocus: false,  // prevent subscription check flash on tab switch
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
