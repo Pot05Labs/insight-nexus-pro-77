@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
-import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { streamAiChat } from "@/services/aiChatStream";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -85,31 +86,34 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Order Composition */}
-        <Card>
+        <Card className="glass-card">
           <CardHeader><CardTitle className="font-display text-base">Order Composition</CardTitle></CardHeader>
           <CardContent className="flex justify-center">
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <PieChart>
                 <Pie data={compData} cx="50%" cy="50%" innerRadius={55} outerRadius={105} dataKey="value" nameKey="name" label={renderPieLabel} labelLine={false} className="text-[10px]" animationDuration={CHART_ANIMATION_MS}>
-                  {compData.map((entry, i) => <Cell key={entry.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  {compData.map((entry, i) => <Cell key={entry.name} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
+                <Tooltip content={<PremiumChartTooltip />} />
+                <text x="50%" y="46%" textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: "10px" }}>Total</text>
+                <text x="50%" y="56%" textAnchor="middle" className="fill-foreground font-bold" style={{ fontSize: "14px" }}>{fmtZAR(compData.reduce((s, c) => s + c.value, 0))}</text>
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
         {/* Sales by Day of Week */}
-        <Card>
+        <Card className="glass-card">
           <CardHeader><CardTitle className="font-display text-base">Sales Distribution by Day of Week</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={dayData}>
+                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis dataKey="day" className={axisClassName} />
                 <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.amberV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

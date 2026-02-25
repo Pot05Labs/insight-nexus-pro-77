@@ -17,7 +17,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
-import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import DataQualityPanel from "@/components/DataQualityPanel";
 
 type CampaignRow = {
@@ -217,7 +218,7 @@ const DashboardHome = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {sellOutKpis.map((kpi, i) => (
             <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
-              <Card>
+              <Card className="glass-card card-hover">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{kpi.label}</span>
@@ -338,7 +339,7 @@ const DashboardHome = () => {
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
               {campaignKpis.map((kpi, i) => (
                 <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.05 }}>
-                  <Card>
+                  <Card className="glass-card card-hover">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{kpi.label}</span>
@@ -371,7 +372,7 @@ const DashboardHome = () => {
           <>
             {/* Revenue vs Spend Time Series (dual axis) — promoted higher as key marriage chart */}
             {timeData.length > 0 && (
-              <Card className="mb-6">
+              <Card className="mb-6 glass-card">
                 <CardHeader><CardTitle className="font-display text-base">Revenue vs Ad Spend Over Time</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
@@ -380,7 +381,7 @@ const DashboardHome = () => {
                       <XAxis dataKey="month" className={axisClassName} />
                       <YAxis yAxisId="revenue" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <YAxis yAxisId="spend" orientation="right" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
+                      <Tooltip content={<PremiumChartTooltip />} />
                       <Legend />
                       <Line yAxisId="revenue" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3, fill: "hsl(var(--primary))" }} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                       <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: "hsl(var(--chart-4))" }} name="Ad Spend" animationDuration={CHART_ANIMATION_MS} />
@@ -392,16 +393,17 @@ const DashboardHome = () => {
 
             {/* Top Products by Brand */}
             {brandData.length > 0 && (
-              <Card className="mb-6">
+              <Card className="mb-6 glass-card">
                 <CardHeader><CardTitle className="font-display text-base">Top-Performing Brands by Revenue</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <BarChart data={brandData} layout="vertical" margin={{ left: 80 }}>
+                      <ChartGradients />
                       <CartesianGrid {...chartGridProps} />
                       <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <YAxis type="category" dataKey="brand" className={axisClassName} width={75} />
-                      <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                      <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealH})`} radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -410,16 +412,17 @@ const DashboardHome = () => {
 
             {/* Category Analysis */}
             {categoryData.length > 0 && (
-              <Card className="mb-6">
+              <Card className="mb-6 glass-card">
                 <CardHeader><CardTitle className="font-display text-base">Category Analysis</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                     <BarChart data={categoryData}>
+                      <ChartGradients />
                       <CartesianGrid {...chartGridProps} />
                       <XAxis dataKey="category" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
                       <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                      <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                      <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                      <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.amberV})`} radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

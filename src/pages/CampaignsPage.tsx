@@ -18,7 +18,8 @@ import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import { fmtZAR, useSellOutData } from "@/hooks/useSellOutData";
-import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 
 type CampaignRow = {
@@ -237,7 +238,7 @@ const CampaignsPage = () => {
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
               {kpis.map((kpi, i) => (
                 <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                  <Card>
+                  <Card className="glass-card card-hover">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{kpi.label}</span>
@@ -306,7 +307,7 @@ const CampaignsPage = () => {
 
             {/* Performance Over Time */}
             {timeMap.length > 0 && (
-              <Card className="mb-6">
+              <Card className="glass-card mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Campaign Performance Over Time</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
@@ -315,7 +316,7 @@ const CampaignsPage = () => {
                       <XAxis dataKey="month" className={axisClassName} />
                       <YAxis yAxisId="spend" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <YAxis yAxisId="impressions" orientation="right" className={axisClassName} tickFormatter={(v) => v > 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
-                      <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [name === "Impressions" ? v.toLocaleString() : fmtZAR(v), name]} />
+                      <Tooltip content={<PremiumChartTooltip formatter={(v, name) => name === "Impressions" ? v.toLocaleString() : fmtZAR(v)} />} />
                       <Legend />
                       <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Spend" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
                       <Line yAxisId="spend" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} name="Revenue" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
@@ -328,18 +329,19 @@ const CampaignsPage = () => {
 
             {/* Platform Breakdown */}
             {platformData.length > 0 && (
-              <Card className="mb-6">
+              <Card className="glass-card mb-6">
                 <CardHeader><CardTitle className="font-display text-base">Platform Breakdown</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                     <BarChart data={platformData}>
+                      <ChartGradients />
                       <CartesianGrid {...chartGridProps} />
                       <XAxis dataKey="platform" className={axisClassName} />
                       <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                      <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number, name: string) => [fmtZAR(v), name]} />
+                      <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
                       <Legend />
-                      <Bar dataKey="spend" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Spend" animationDuration={CHART_ANIMATION_MS} />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="spend" fill={`url(#${GRADIENT_IDS.roseV})`} radius={[4, 4, 0, 0]} name="Spend" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealV})`} radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

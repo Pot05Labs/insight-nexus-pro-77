@@ -7,7 +7,8 @@ import { ArrowUpDown, Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS, chartTooltipStyle } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 
@@ -105,16 +106,17 @@ const RetailersPage = () => {
         />
       </div>
 
-      <Card>
+      <Card className="glass-card">
         <CardHeader><CardTitle className="font-display text-base">Revenue by Retailer</CardTitle></CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
             <BarChart data={chartData}>
+              <ChartGradients />
               <CartesianGrid {...chartGridProps} />
               <XAxis dataKey="retailer" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
               <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-              <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-              <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+              <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+              <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -122,7 +124,7 @@ const RetailersPage = () => {
 
       {/* Cross-Retailer Benchmarking Radar */}
       {radarData.length > 0 && radarRetailers.length >= 2 && (
-        <Card>
+        <Card className="glass-card">
           <CardHeader><CardTitle className="font-display text-base">Cross-Retailer Benchmarking</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.full + 50}>

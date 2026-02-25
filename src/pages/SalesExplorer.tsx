@@ -9,7 +9,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { supabase } from "@/integrations/supabase/client";
 import { ShoppingCart, TrendingUp, DollarSign, Package, Upload, Inbox } from "lucide-react";
 import { fmtZAR } from "@/hooks/useSellOutData";
-import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { Link } from "react-router-dom";
 
 type Sale = { date: string; sku: string; product_name: string; channel: string; revenue: number; units_sold: number; returns: number; cost: number };
@@ -102,7 +103,7 @@ const SalesExplorer = () => {
               { label: "Returns", value: totalReturns.toLocaleString(), icon: Package },
               { label: "Gross Margin", value: `${avgMargin.toFixed(1)}%`, icon: TrendingUp },
             ].map((k) => (
-              <Card key={k.label}>
+              <Card key={k.label} className="glass-card card-hover">
                 <CardContent className="p-4 flex items-center gap-3">
                   <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center"><k.icon className="h-4 w-4 text-primary" /></div>
                   <div>
@@ -115,16 +116,17 @@ const SalesExplorer = () => {
           </div>
 
           {channelBreakdown.length > 0 && (
-            <Card>
+            <Card className="glass-card">
               <CardHeader><CardTitle className="font-display text-base">Revenue by Channel</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                   <BarChart data={channelBreakdown}>
+                    <ChartGradients />
                     <CartesianGrid {...chartGridProps} />
                     <XAxis dataKey="channel" className={axisClassName} />
                     <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                    <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+                    <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                    <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>

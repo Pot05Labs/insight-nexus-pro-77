@@ -7,7 +7,8 @@ import { Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartTooltipStyle, chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 const GeographyPage = () => {
   const { data, loading } = useSellOutData();
@@ -63,31 +64,33 @@ const GeographyPage = () => {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        <Card>
+        <Card className="glass-card">
           <CardHeader><CardTitle className="font-display text-base">Top 5 Stores by Revenue</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={storeData} layout="vertical" margin={{ left: 100 }}>
+                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="store" className="text-[10px] fill-muted-foreground" width={95} />
-                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--chart-5))" radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.blueH})`} radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-card">
           <CardHeader><CardTitle className="font-display text-base">Revenue by Province</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={regionData}>
+                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis dataKey="region" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
                 <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                <Tooltip contentStyle={chartTooltipStyle} cursor={chartCursorStyle} formatter={(v: number) => [fmtZAR(v), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.purpleV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

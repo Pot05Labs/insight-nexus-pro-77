@@ -8,7 +8,8 @@ import { detectAnomalies, buildDailyRevenueSeries, type AnomalyPoint } from "@/l
 import { fmtZAR } from "@/hooks/useSellOutData";
 import { streamAiChat } from "@/services/aiChatStream";
 import type { SellOutRow } from "@/hooks/useSellOutData";
-import { chartTooltipStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 interface AnomalyDetectionPanelProps {
   data: SellOutRow[];
@@ -60,7 +61,7 @@ const AnomalyDetectionPanel = ({ data }: AnomalyDetectionPanelProps) => {
   if (revenueSeries.length < 5) return null;
 
   return (
-    <Card>
+    <Card className="glass-card">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="font-display text-base flex items-center gap-2">
@@ -79,7 +80,7 @@ const AnomalyDetectionPanel = ({ data }: AnomalyDetectionPanelProps) => {
             <CartesianGrid {...chartGridProps} />
             <XAxis dataKey="date" className="text-[10px] fill-muted-foreground" tickFormatter={(d) => d.slice(5)} />
             <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-            <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [v != null ? fmtZAR(v) : "—", "Revenue"]} labelFormatter={(l) => `Date: ${l}`} />
+            <Tooltip content={<PremiumChartTooltip formatter={(v) => fmtZAR(v)} labelFormatter={(l) => `Date: ${l}`} />} />
             <ReferenceLine y={result.mean} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" label={{ value: "Avg", position: "right", className: "text-[10px] fill-muted-foreground" }} />
             <ReferenceLine y={result.mean + 2 * result.stdDev} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.4} />
             <ReferenceLine y={Math.max(0, result.mean - 2 * result.stdDev)} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.4} />
