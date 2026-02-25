@@ -155,19 +155,6 @@
 }
 
 @layer components {
-  .glass-card {
-    @apply rounded-xl border border-border bg-card/80 backdrop-blur-md shadow-sm;
-  }
-
-  .card-hover {
-    @apply transition-all duration-200 ease-out;
-  }
-  .card-hover:hover {
-    @apply shadow-md -translate-y-0.5 border-primary/20;
-  }
-}
-
-@layer components {
   /* Glassmorphism card — use alongside shadcn Card */
   .glass-card {
     background: hsl(var(--card) / 0.8);
