@@ -5,11 +5,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { ShoppingCart, TrendingUp, DollarSign, Package, Upload, Inbox } from "lucide-react";
 import { fmtZAR } from "@/hooks/useSellOutData";
-import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { Link } from "react-router-dom";
 
@@ -51,7 +51,7 @@ const SalesExplorer = () => {
   const channelBreakdown = channels.map((ch) => {
     const channelSales = filtered.filter((s) => s.channel === ch);
     return { channel: ch, revenue: channelSales.reduce((a, b) => a + b.revenue, 0), units: channelSales.reduce((a, b) => a + b.units_sold, 0) };
-  }).sort((a, b) => b.revenue - a.revenue);
+  }).sort((a, b) => b.revenue - a.revenue).slice(0, 6);
 
   const hasData = sales.length > 0;
 
@@ -121,12 +121,13 @@ const SalesExplorer = () => {
               <CardContent>
                 <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                   <BarChart data={channelBreakdown}>
-                    <ChartGradients />
                     <CartesianGrid {...chartGridProps} />
                     <XAxis dataKey="channel" className={axisClassName} />
                     <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                     <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                    <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+                    <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
+                      {channelBreakdown.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
-import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { streamAiChat } from "@/services/aiChatStream";
 
@@ -32,8 +32,9 @@ const BehaviourPage = () => {
 
   // Order composition by category (as proxy)
   const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const compData = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
+  const compDataAll = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
     .map(([name, value]) => ({ name, value: Math.round(value) }));
+  const compData = topNWithOther(compDataAll, 5, "value", "name");
 
   const generateSegments = async () => {
     setSegLoading(true);
@@ -108,12 +109,13 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={dayData}>
-                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis dataKey="day" className={axisClassName} />
                 <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.amberV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
+                  {dayData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

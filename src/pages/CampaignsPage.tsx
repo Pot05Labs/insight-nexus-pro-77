@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,7 +18,7 @@ import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import { fmtZAR, useSellOutData } from "@/hooks/useSellOutData";
-import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, LINE_COLORS } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 
@@ -117,7 +117,7 @@ const CampaignsPage = () => {
       m[p].conversions += Number(r.conversions ?? 0);
       m[p].revenue += Number(r.revenue ?? 0);
     });
-    return Object.entries(m).sort(([, a], [, b]) => b.spend - a.spend).map(([platform, v]) => ({
+    return Object.entries(m).sort(([, a], [, b]) => b.spend - a.spend).slice(0, 6).map(([platform, v]) => ({
       platform, spend: Math.round(v.spend), impressions: v.impressions, clicks: v.clicks, conversions: v.conversions, revenue: Math.round(v.revenue),
     }));
   }, [filtered]);
@@ -312,15 +312,32 @@ const CampaignsPage = () => {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <LineChart data={timeMap}>
+                      <defs>
+                        <linearGradient id="areaSpendCamp" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={LINE_COLORS.spend} stopOpacity={0.10} />
+                          <stop offset="100%" stopColor={LINE_COLORS.spend} stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="areaRevenueCamp" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={LINE_COLORS.revenue} stopOpacity={0.10} />
+                          <stop offset="100%" stopColor={LINE_COLORS.revenue} stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="areaImpressionsCamp" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={LINE_COLORS.impressions} stopOpacity={0.08} />
+                          <stop offset="100%" stopColor={LINE_COLORS.impressions} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid {...chartGridProps} />
                       <XAxis dataKey="month" className={axisClassName} />
                       <YAxis yAxisId="spend" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <YAxis yAxisId="impressions" orientation="right" className={axisClassName} tickFormatter={(v) => v > 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
                       <Tooltip content={<PremiumChartTooltip formatter={(v, name) => name === "Impressions" ? v.toLocaleString() : fmtZAR(v)} />} />
                       <Legend />
-                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Spend" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
-                      <Line yAxisId="spend" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} name="Revenue" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
-                      <Line yAxisId="impressions" dataKey="impressions" stroke="hsl(var(--chart-2))" strokeWidth={1.5} strokeDasharray="4 4" name="Impressions" dot={false} animationDuration={CHART_ANIMATION_MS} />
+                      <Area yAxisId="spend" dataKey="spend" fill="url(#areaSpendCamp)" stroke="none" animationDuration={CHART_ANIMATION_MS} />
+                      <Area yAxisId="spend" dataKey="revenue" fill="url(#areaRevenueCamp)" stroke="none" animationDuration={CHART_ANIMATION_MS} />
+                      <Area yAxisId="impressions" dataKey="impressions" fill="url(#areaImpressionsCamp)" stroke="none" animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="spend" dataKey="spend" stroke={LINE_COLORS.spend} strokeWidth={2} name="Spend" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="spend" dataKey="revenue" stroke={LINE_COLORS.revenue} strokeWidth={2.5} name="Revenue" dot={{ r: 2 }} animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="impressions" dataKey="impressions" stroke={LINE_COLORS.impressions} strokeWidth={1.5} strokeDasharray="4 4" name="Impressions" dot={false} animationDuration={CHART_ANIMATION_MS} />
                     </LineChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -334,14 +351,13 @@ const CampaignsPage = () => {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                     <BarChart data={platformData}>
-                      <ChartGradients />
                       <CartesianGrid {...chartGridProps} />
                       <XAxis dataKey="platform" className={axisClassName} />
                       <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
                       <Legend />
-                      <Bar dataKey="spend" fill={`url(#${GRADIENT_IDS.roseV})`} radius={[4, 4, 0, 0]} name="Spend" animationDuration={CHART_ANIMATION_MS} />
-                      <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealV})`} radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="spend" fill={LINE_COLORS.spend} radius={[4, 4, 0, 0]} name="Spend" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="revenue" fill={LINE_COLORS.revenue} radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

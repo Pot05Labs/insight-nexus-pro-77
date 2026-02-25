@@ -1,13 +1,13 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUpDown, Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS, chartTooltipStyle } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, chartTooltipStyle } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
@@ -24,7 +24,7 @@ const RetailersPage = () => {
 
   // Revenue by retailer (all time for chart)
   const revByRetailer = aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const chartData = Object.entries(revByRetailer).sort(([, a], [, b]) => b - a)
+  const chartData = Object.entries(revByRetailer).sort(([, a], [, b]) => b - a).slice(0, 8)
     .map(([retailer, revenue]) => ({ retailer, revenue: Math.round(revenue) }));
 
   // Table data with benchmarking index (100 = average)
@@ -111,12 +111,13 @@ const RetailersPage = () => {
         <CardContent>
           <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
             <BarChart data={chartData}>
-              <ChartGradients />
               <CartesianGrid {...chartGridProps} />
               <XAxis dataKey="retailer" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
               <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
               <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-              <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+              <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
+                {chartData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

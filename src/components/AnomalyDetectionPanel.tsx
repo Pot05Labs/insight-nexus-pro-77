@@ -3,12 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, TrendingUp, TrendingDown, Sparkles, Loader2 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { detectAnomalies, buildDailyRevenueSeries, type AnomalyPoint } from "@/lib/anomaly-utils";
 import { fmtZAR } from "@/hooks/useSellOutData";
 import { streamAiChat } from "@/services/aiChatStream";
 import type { SellOutRow } from "@/hooks/useSellOutData";
-import { chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName } from "@/lib/chart-utils";
+import { chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, LINE_COLORS } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 interface AnomalyDetectionPanelProps {
@@ -84,7 +84,14 @@ const AnomalyDetectionPanel = ({ data }: AnomalyDetectionPanelProps) => {
             <ReferenceLine y={result.mean} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" label={{ value: "Avg", position: "right", className: "text-[10px] fill-muted-foreground" }} />
             <ReferenceLine y={result.mean + 2 * result.stdDev} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.4} />
             <ReferenceLine y={Math.max(0, result.mean - 2 * result.stdDev)} stroke="hsl(var(--chart-4))" strokeDasharray="2 2" opacity={0.4} />
-            <Line dataKey="value" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+            <defs>
+              <linearGradient id="areaAnomaly" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={LINE_COLORS.revenue} stopOpacity={0.08} />
+                <stop offset="100%" stopColor={LINE_COLORS.revenue} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <Area dataKey="value" fill="url(#areaAnomaly)" stroke="none" animationDuration={CHART_ANIMATION_MS} />
+            <Line dataKey="value" stroke={LINE_COLORS.revenue} strokeWidth={1.5} dot={false} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
             <Line dataKey="anomalyValue" stroke="hsl(var(--destructive))" strokeWidth={0} dot={{ r: 5, fill: "hsl(var(--destructive))", stroke: "hsl(var(--destructive))" }} name="Anomaly" animationDuration={CHART_ANIMATION_MS} />
           </LineChart>
         </ResponsiveContainer>

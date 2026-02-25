@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DollarSign, ShoppingCart, Tag, Package, Inbox, Upload, Eye, MousePointerClick, TrendingUp, Megaphone, Target, Zap, BarChart3, CircleDollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
@@ -17,7 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
-import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, LINE_COLORS, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import DataQualityPanel from "@/components/DataQualityPanel";
 
@@ -151,14 +151,15 @@ const DashboardHome = () => {
   const revByBrand = aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0));
   const brandData = Object.entries(revByBrand)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 10)
+    .slice(0, 6)
     .map(([brand, revenue]) => ({ brand, revenue: Math.round(revenue) }));
 
   // Category analysis
   const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const categoryData = Object.entries(revByCategory)
+  const categoryDataRaw = Object.entries(revByCategory)
     .sort(([, a], [, b]) => b - a)
     .map(([category, revenue]) => ({ category, revenue: Math.round(revenue) }));
+  const categoryData = topNWithOther(categoryDataRaw, 6, "revenue", "category");
 
   // Revenue + Spend time series (monthly)
   const monthMapRevenue: Record<string, number> = {};
@@ -377,14 +378,26 @@ const DashboardHome = () => {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <LineChart data={timeData}>
+                      <defs>
+                        <linearGradient id="areaRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={LINE_COLORS.revenue} stopOpacity={0.12} />
+                          <stop offset="100%" stopColor={LINE_COLORS.revenue} stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="areaSpend" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={LINE_COLORS.spend} stopOpacity={0.1} />
+                          <stop offset="100%" stopColor={LINE_COLORS.spend} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid {...chartGridProps} />
                       <XAxis dataKey="month" className={axisClassName} />
                       <YAxis yAxisId="revenue" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <YAxis yAxisId="spend" orientation="right" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <Tooltip content={<PremiumChartTooltip />} />
                       <Legend />
-                      <Line yAxisId="revenue" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3, fill: "hsl(var(--primary))" }} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
-                      <Line yAxisId="spend" dataKey="spend" stroke="hsl(var(--chart-4))" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: "hsl(var(--chart-4))" }} name="Ad Spend" animationDuration={CHART_ANIMATION_MS} />
+                      <Area yAxisId="revenue" dataKey="revenue" fill="url(#areaRevenue)" stroke="none" animationDuration={CHART_ANIMATION_MS} />
+                      <Area yAxisId="spend" dataKey="spend" fill="url(#areaSpend)" stroke="none" animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="revenue" dataKey="revenue" stroke={LINE_COLORS.revenue} strokeWidth={2.5} dot={{ r: 3, fill: LINE_COLORS.revenue }} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Line yAxisId="spend" dataKey="spend" stroke={LINE_COLORS.spend} strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: LINE_COLORS.spend }} name="Ad Spend" animationDuration={CHART_ANIMATION_MS} />
                     </LineChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -398,12 +411,13 @@ const DashboardHome = () => {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
                     <BarChart data={brandData} layout="vertical" margin={{ left: 80 }}>
-                      <ChartGradients />
                       <CartesianGrid {...chartGridProps} />
                       <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <YAxis type="category" dataKey="brand" className={axisClassName} width={75} />
                       <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                      <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealH})`} radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="revenue" radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS}>
+                        {brandData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -417,12 +431,13 @@ const DashboardHome = () => {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
                     <BarChart data={categoryData}>
-                      <ChartGradients />
                       <CartesianGrid {...chartGridProps} />
                       <XAxis dataKey="category" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
                       <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                       <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                      <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.amberV})`} radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                      <Bar dataKey="revenue" radius={[4, 4, 0, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS}>
+                        {categoryData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

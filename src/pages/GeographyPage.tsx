@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 const GeographyPage = () => {
@@ -69,12 +69,13 @@ const GeographyPage = () => {
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={storeData} layout="vertical" margin={{ left: 100 }}>
-                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="store" className="text-[10px] fill-muted-foreground" width={95} />
                 <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.blueH})`} radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Bar dataKey="revenue" radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS}>
+                  {storeData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -85,12 +86,13 @@ const GeographyPage = () => {
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={regionData}>
-                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis dataKey="region" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
                 <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.purpleV})`} radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
+                  {regionData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

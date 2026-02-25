@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, ChartGradients, GRADIENT_IDS } from "@/lib/chart-utils";
+import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 type SortKey = "product" | "brand" | "category" | "revenue" | "units" | "avgPrice" | "marketShare";
@@ -25,13 +25,16 @@ const ProductsPage = () => {
 
   // Top 10 products by revenue
   const revByProduct = aggregate(data, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const top10 = Object.entries(revByProduct).sort(([, a], [, b]) => b - a).slice(0, 10)
+  const top10 = Object.entries(revByProduct).sort(([, a], [, b]) => b - a).slice(0, 8)
     .map(([name, revenue]) => ({ name, revenue: Math.round(revenue) }));
 
   // Category donut
   const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const categoryData = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
-    .map(([name, value]) => ({ name, value: Math.round(value) }));
+  const categoryData = topNWithOther(
+    Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
+      .map(([name, value]) => ({ name, value: Math.round(value) })),
+    5, "value", "name"
+  );
 
   // Brand inference: extract from product name if brand field is null
   const inferBrand = (r: typeof data[0]): string => {
@@ -57,7 +60,7 @@ const ProductsPage = () => {
   }, [revByBrand, totalRevenue]);
 
   // Brand chart data (top 10)
-  const brandChartData = brandRankings.slice(0, 10).map((b) => ({
+  const brandChartData = brandRankings.slice(0, 8).map((b) => ({
     brand: b.brand,
     revenue: Math.round(b.revenue),
   }));
@@ -121,12 +124,13 @@ const ProductsPage = () => {
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
               <BarChart data={top10} layout="vertical" margin={{ left: 100 }}>
-                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="name" className="text-[10px] fill-muted-foreground" width={95} />
                 <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealH})`} radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS} />
+                <Bar dataKey="revenue" radius={[0, 4, 4, 0]} animationDuration={CHART_ANIMATION_MS}>
+                  {top10.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -157,12 +161,13 @@ const ProductsPage = () => {
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
               <BarChart data={brandChartData} layout="vertical" margin={{ left: 100 }}>
-                <ChartGradients />
                 <CartesianGrid {...chartGridProps} />
                 <XAxis type="number" className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
                 <YAxis type="category" dataKey="brand" className="text-[10px] fill-muted-foreground" width={95} />
                 <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                <Bar dataKey="revenue" fill={`url(#${GRADIENT_IDS.tealH})`} radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS} />
+                <Bar dataKey="revenue" radius={[0, 4, 4, 0]} name="Revenue" animationDuration={CHART_ANIMATION_MS}>
+                  {brandChartData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

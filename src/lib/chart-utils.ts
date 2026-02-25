@@ -1,9 +1,8 @@
 /**
  * Shared chart styling utilities for consistent Recharts presentation.
- * Single source of truth for chart colors, tooltips, animations, gradients, and formatting.
+ * Single source of truth for chart colors, tooltips, animations, and formatting.
  */
-import type { CSSProperties, ReactElement } from "react";
-import React from "react";
+import type { CSSProperties } from "react";
 
 /* ─── Tooltip ─── */
 export const chartTooltipStyle: CSSProperties = {
@@ -33,17 +32,40 @@ export const CHART_COLORS = [
   "hsl(280 45% 55%)",          // violet
 ] as const;
 
-/* ─── Refined donut/pie palette (deeper, richer than CHART_COLORS) ─── */
-export const DONUT_COLORS = [
-  "hsl(175 65% 38%)",   // deep teal
-  "hsl(38 85% 52%)",    // warm amber
-  "hsl(262 48% 50%)",   // muted purple
-  "hsl(199 75% 48%)",   // ocean blue
-  "hsl(349 65% 55%)",   // soft rose
-  "hsl(152 55% 42%)",   // forest green
-  "hsl(25 80% 52%)",    // burnt orange
-  "hsl(280 40% 52%)",   // violet
+/**
+ * Vibrant multi-color palette for bar/area charts.
+ * Each bar gets its own color via Recharts <Cell>.
+ * 8 colors chosen for contrast, dark-mode safety, and harmony.
+ */
+export const CHART_PALETTE = [
+  "#0EA5E9", // sky-500 (bright blue)
+  "#8B5CF6", // violet-500 (purple)
+  "#F97316", // orange-500 (warm orange)
+  "#10B981", // emerald-500 (green)
+  "#F43F5E", // rose-500 (pink/red)
+  "#EAB308", // yellow-500 (gold)
+  "#06B6D4", // cyan-500 (teal)
+  "#EC4899", // pink-500 (hot pink)
 ] as const;
+
+/** Donut / Pie palette — matches CHART_PALETTE for visual consistency */
+export const DONUT_COLORS = [
+  "#0EA5E9", // sky-500
+  "#8B5CF6", // violet-500
+  "#F97316", // orange-500
+  "#10B981", // emerald-500
+  "#F43F5E", // rose-500
+  "#EAB308", // yellow-500
+  "#06B6D4", // cyan-500
+  "#EC4899", // pink-500
+] as const;
+
+/** Named line colors for dual/multi-axis line charts */
+export const LINE_COLORS = {
+  revenue: "#0EA5E9",    // sky blue
+  spend: "#F43F5E",      // rose
+  impressions: "#EAB308", // gold
+} as const;
 
 /* ─── Animation ─── */
 export const CHART_ANIMATION_MS = 800;
@@ -84,69 +106,21 @@ export const renderPieLabel = ({
   return `${name} ${(percent * 100).toFixed(0)}%`;
 };
 
-/* ─── SVG Gradient IDs ─── */
-export const GRADIENT_IDS = {
-  tealV: "grad-teal-v",
-  tealH: "grad-teal-h",
-  amberV: "grad-amber-v",
-  blueV: "grad-blue-v",
-  blueH: "grad-blue-h",
-  purpleV: "grad-purple-v",
-  roseV: "grad-rose-v",
-} as const;
-
-/* ─── SVG Gradient Definitions (place inside <BarChart>, <LineChart>, etc.) ─── */
-export const ChartGradients = (): ReactElement =>
-  React.createElement(
-    "defs",
-    null,
-    // Teal vertical (top→bottom)
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.tealV, x1: "0", y1: "0", x2: "0", y2: "1" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(175 65% 50%)", stopOpacity: 0.9 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(175 65% 32%)", stopOpacity: 1 }),
-    ),
-    // Teal horizontal (left→right)
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.tealH, x1: "0", y1: "0", x2: "1", y2: "0" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(175 65% 32%)", stopOpacity: 1 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(175 65% 50%)", stopOpacity: 0.9 }),
-    ),
-    // Amber vertical
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.amberV, x1: "0", y1: "0", x2: "0", y2: "1" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(38 92% 60%)", stopOpacity: 0.9 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(38 92% 45%)", stopOpacity: 1 }),
-    ),
-    // Blue vertical
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.blueV, x1: "0", y1: "0", x2: "0", y2: "1" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(199 80% 56%)", stopOpacity: 0.9 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(199 80% 40%)", stopOpacity: 1 }),
-    ),
-    // Blue horizontal
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.blueH, x1: "0", y1: "0", x2: "1", y2: "0" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(199 80% 40%)", stopOpacity: 1 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(199 80% 56%)", stopOpacity: 0.9 }),
-    ),
-    // Purple vertical
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.purpleV, x1: "0", y1: "0", x2: "0", y2: "1" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(262 52% 58%)", stopOpacity: 0.9 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(262 52% 42%)", stopOpacity: 1 }),
-    ),
-    // Rose vertical
-    React.createElement(
-      "linearGradient",
-      { id: GRADIENT_IDS.roseV, x1: "0", y1: "0", x2: "0", y2: "1" },
-      React.createElement("stop", { offset: "0%", stopColor: "hsl(349 75% 65%)", stopOpacity: 0.9 }),
-      React.createElement("stop", { offset: "100%", stopColor: "hsl(349 75% 50%)", stopOpacity: 1 }),
-    ),
-  );
+/**
+ * Slice a sorted array to top N items, rolling up the rest into "Other".
+ * Input MUST be pre-sorted descending by the value accessor.
+ */
+export function topNWithOther<T extends Record<string, unknown>>(
+  sorted: T[],
+  n: number,
+  valueKey: string,
+  nameKey: string,
+): T[] {
+  if (sorted.length <= n) return sorted;
+  const top = sorted.slice(0, n);
+  const otherValue = sorted.slice(n).reduce((sum, item) => sum + (Number(item[valueKey]) || 0), 0);
+  if (otherValue > 0) {
+    top.push({ ...sorted[0], [nameKey]: "Other", [valueKey]: Math.round(otherValue) } as T);
+  }
+  return top;
+}
