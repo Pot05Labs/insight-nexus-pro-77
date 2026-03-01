@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown, Inbox } from "lucide-react";
+import { ArrowUpDown } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
@@ -97,7 +98,7 @@ const ProductsPage = () => {
   const dataSummary = `Top 10 Products: ${top10.map((p) => `${p.name} (${fmtZAR(p.revenue)})`).join(", ")}. Categories: ${categoryData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Brand rankings: ${brandRankings.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)}, ${b.marketShare.toFixed(1)}% share)`).join(", ")}. Total Revenue: ${fmtZAR(totalRevenue)}.`;
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData) return <div className="p-8 text-center"><Inbox className="h-10 w-10 mx-auto text-muted-foreground/30 mb-4" /><p className="text-muted-foreground">Upload data to see product analytics.</p></div>;
+  if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see product analytics." /></div>;
 
   const SortIcon = ({ col }: { col: SortKey }) => (
     <ArrowUpDown className={`inline h-3 w-3 ml-1 cursor-pointer ${sortKey === col ? "text-primary" : "text-muted-foreground/40"}`} onClick={() => handleSort(col)} />

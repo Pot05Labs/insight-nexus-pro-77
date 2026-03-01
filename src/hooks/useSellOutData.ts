@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface SellOutRow {
@@ -19,31 +19,32 @@ export interface SellOutRow {
   units_supplied: number | null;
 }
 
+async function fetchSellOutData(): Promise<SellOutRow[]> {
+  const { data: projects } = await supabase.from("projects").select("id").limit(1);
+  const projectId = projects?.[0]?.id;
+  if (!projectId) return [];
+
+  const { data: rows } = await supabase
+    .from("sell_out_data")
+    .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
+    .eq("project_id", projectId)
+    .is("deleted_at", null)
+    .order("date", { ascending: true });
+
+  return (rows as SellOutRow[]) ?? [];
+}
+
 export function useSellOutData() {
-  const [data, setData] = useState<SellOutRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data: projects } = await supabase.from("projects").select("id").limit(1);
-    const projectId = projects?.[0]?.id;
-    if (!projectId) { setLoading(false); return; }
+  const { data = [], isLoading } = useQuery({
+    queryKey: ["sell-out-data"],
+    queryFn: fetchSellOutData,
+  });
 
-    const { data: rows } = await supabase
-      .from("sell_out_data")
-      .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
-      .eq("project_id", projectId)
-      .order("date", { ascending: true });
+  const refetch = () => queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
 
-    setData((rows as SellOutRow[]) ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { data, loading, refetch: load };
+  return { data, loading: isLoading, refetch };
 }
 
 // Currency formatter for ZAR

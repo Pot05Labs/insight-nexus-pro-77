@@ -65,6 +65,7 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
     .from("sell_out_data")
     .select("date, retailer, product_name_raw, region, category, revenue, units_sold, units_supplied, cost")
     .eq("project_id", projectId)
+    .is("deleted_at", null)
     .order("date", { ascending: true });
 
   if (error || !data || data.length === 0) return null;
@@ -118,7 +119,8 @@ async function computeCampaignMetrics(projectId: string): Promise<CampaignMetric
   const { data, error } = await supabase
     .from("campaign_data_v2")
     .select("platform, channel, campaign_name, spend, impressions, clicks, ctr, conversions, revenue")
-    .eq("project_id", projectId);
+    .eq("project_id", projectId)
+    .is("deleted_at", null);
 
   if (error || !data || data.length === 0) return null;
 

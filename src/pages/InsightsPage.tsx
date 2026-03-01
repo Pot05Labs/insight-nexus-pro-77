@@ -33,6 +33,7 @@ const InsightsPage = () => {
     const { data } = await supabase
       .from("narrative_reports")
       .select("*")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1);
     const latest = data?.[0];
@@ -103,7 +104,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
 
   const buildDataContext = async (): Promise<string> => {
     const [salesRes, metricsRes] = await Promise.all([
-      supabase.from("sell_out_data").select("retailer, brand, product_name_raw, revenue, units_sold, date").order("date", { ascending: false }).limit(50),
+      supabase.from("sell_out_data").select("retailer, brand, product_name_raw, revenue, units_sold, date").is("deleted_at", null).order("date", { ascending: false }).limit(50),
       supabase.from("computed_metrics").select("metric_name, metric_value, dimensions").limit(30),
     ]);
 

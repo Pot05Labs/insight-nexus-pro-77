@@ -19,7 +19,8 @@ export function useRealtimeCounts(userId: string | undefined) {
         .from("data_uploads")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
-        .in("status", ["uploaded", "processing"]);
+        .in("status", ["uploaded", "processing"])
+        .neq("status", "archived");
       setPendingUploads(pending ?? 0);
 
       const yesterday = new Date(Date.now() - 86_400_000).toISOString();
@@ -27,6 +28,7 @@ export function useRealtimeCounts(userId: string | undefined) {
         .from("sell_out_data")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
+        .is("deleted_at", null)
         .gte("created_at", yesterday);
       setNewDataCount(recent ?? 0);
     };

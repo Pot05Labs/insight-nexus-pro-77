@@ -1,11 +1,65 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+// --- CORS ---
+const ALLOWED_ORIGINS = [
+  "https://signalstack.africa",
+  "https://www.signalstack.africa",
+];
+
+function getAllowedOrigin(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  // Allow Lovable preview URLs and localhost for development
+  if (
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.includes(".lovable.app") ||
+    origin.includes(".lovableproject.com") ||
+    origin.startsWith("http://localhost")
+  ) {
+    return origin;
+  }
+  return ALLOWED_ORIGINS[0];
+}
+
+function corsHeaders(req: Request) {
+  return {
+    "Access-Control-Allow-Origin": getAllowedOrigin(req),
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
+
+// --- Model Routing ---
+const MODEL_ROUTES: Record<string, { primary: string; fallback: string }> = {
+  insights:     { primary: "deepseek/deepseek-v3.2",      fallback: "google/gemini-2.5-flash" },
+  query:        { primary: "google/gemini-2.5-flash",      fallback: "deepseek/deepseek-v3" },
+  extraction:   { primary: "google/gemini-2.5-pro",        fallback: "google/gemini-2.5-flash" },
+  anomaly:      { primary: "deepseek/deepseek-v3",         fallback: "google/gemini-2.5-flash" },
+  segmentation: { primary: "deepseek/deepseek-v3.2",       fallback: "google/gemini-2.5-flash" },
+  schema:       { primary: "google/gemini-2.5-flash",      fallback: "deepseek/deepseek-v3" },
+  report:       { primary: "deepseek/deepseek-v3.2",       fallback: "google/gemini-2.5-flash" },
+  learning:     { primary: "deepseek/deepseek-v3.2",       fallback: "google/gemini-2.5-flash" },
 };
 
+// --- Rate Limiting (in-memory, per-instance) ---
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 30; // requests per window
+const RATE_WINDOW_MS = 60_000; // 1 minute
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// --- System Prompts ---
 const INSIGHTS_SYSTEM = `You are SignalStack by Pot Labs — a retail signal intelligence AI for South African FMCG commerce. You unify multi-retailer performance data and overlay campaign data to deliver decision-ready intelligence, helping brand teams and agencies prove retail media impact at checkout, not just on clicks.
 
 You serve the South African FMCG ecosystem: retailers include Pick n Pay, Checkers/Shoprite Group, Woolworths, Spar, Makro, Game, Clicks, Dis-Chem. Advertising platforms: Meta, Google, TikTok, DStv/Multichoice, OOH, in-store (gondola ends, shelf talkers, loyalty programmes). Provinces: Gauteng, Western Cape, KwaZulu-Natal, Eastern Cape, Free State, Limpopo, Mpumalanga, North West, Northern Cape. Seasonal periods: Festive season (Nov-Jan), Back-to-School (Jan-Feb), Easter, Heritage Month (Sep).
@@ -57,8 +111,9 @@ You have access to the following database tables:
 
 **sell_out_data**: retailer, brand, sub_brand, product_name_raw, sku, category, format_size, region, store_location, date, units_sold, units_supplied, revenue, cost
 **campaign_data_v2**: platform, channel, campaign_name, flight_start, flight_end, spend, impressions, clicks, ctr, cpm, conversions, revenue, total_sales_attributed, total_units_attributed
-**harmonized_sales**: channel, product_name, sku, date, units_sold, revenue, cost, returns
 **computed_metrics**: metric_name, metric_value, dimensions (jsonb), computed_at
+
+IMPORTANT: All tables use soft deletes. The frontend will automatically add a deleted_at IS NULL filter to every query.
 
 When the user asks a question:
 1. Determine which table(s) to query
@@ -71,15 +126,115 @@ Supported operators: eq, neq, gt, gte, lt, lte, like, ilike
 
 Always include an explanation framed as: WHAT this query reveals, SO WHAT it means strategically, and NOW WHAT to do with this insight. If the question is ambiguous, make reasonable assumptions and state them.`;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+// --- Auth Helper ---
+async function authenticateUser(req: Request): Promise<{ userId: string } | null> {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+
+  const token = authHeader.slice(7);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    // Fallback: accept the anon key token (backwards compatible)
+    return { userId: "anon" };
+  }
 
   try {
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !user) return null;
+    return { userId: user.id };
+  } catch {
+    // If service role key isn't set, allow through with anon key (backwards compatible)
+    return { userId: "anon" };
+  }
+}
+
+// --- Intelligence Injection ---
+async function fetchIntelligenceContext(userId: string): Promise<string> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !supabaseServiceKey || userId === "anon") return "";
+
+  try {
+    const sb = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Find user's most recent project
+    const { data: projects } = await sb
+      .from("projects")
+      .select("id")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const projectId = projects?.[0]?.id;
+    if (!projectId) return "";
+
+    // Fetch learned intelligence for this project
+    const { data: intelligence } = await sb
+      .from("client_intelligence")
+      .select("intelligence_type, content, confidence")
+      .eq("project_id", projectId)
+      .is("deleted_at", null)
+      .gte("confidence", 0.3)
+      .order("last_updated_at", { ascending: false })
+      .limit(10);
+
+    if (!intelligence || intelligence.length === 0) return "";
+
+    const ctx = intelligence
+      .map((i: { intelligence_type: string; content: unknown; confidence: number }) =>
+        `[${i.intelligence_type} | confidence: ${i.confidence}] ${JSON.stringify(i.content)}`
+      )
+      .join("\n\n");
+
+    return `\n\nLEARNED CLIENT INTELLIGENCE (from previous uploads — use this to give specific, data-backed advice):\n${ctx}`;
+  } catch (err) {
+    console.warn("[ai-chat] Intelligence fetch failed (non-blocking):", err);
+    return "";
+  }
+}
+
+// --- Main Handler ---
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders(req) });
+  }
+
+  try {
+    // Auth check
+    const auth = await authenticateUser(req);
+    if (!auth) {
+      return new Response(JSON.stringify({ error: "Unauthorized. Please log in." }), {
+        status: 401,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
+    // Rate limit check
+    if (!checkRateLimit(auth.userId)) {
+      return new Response(JSON.stringify({ error: "Rate limited — max 30 requests per minute. Please wait." }), {
+        status: 429,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
     const { messages, context } = await req.json();
     const OPENROUTER_KEY = Deno.env.get("OPENROUTER");
-    if (!OPENROUTER_KEY) throw new Error("OPENROUTER secret is not configured. Set it in Supabase Edge Function secrets.");
+    if (!OPENROUTER_KEY) {
+      throw new Error("OPENROUTER secret is not configured. Set it in Supabase Edge Function secrets.");
+    }
 
-    const systemPrompt = context === "query" ? QUERY_SYSTEM : INSIGHTS_SYSTEM;
+    // Fetch learned intelligence and append to system prompt
+    const intelligenceCtx = await fetchIntelligenceContext(auth.userId);
+    const basePrompt = context === "query" ? QUERY_SYSTEM : INSIGHTS_SYSTEM;
+    const systemPrompt = basePrompt + intelligenceCtx;
+
+    // Select model based on context
+    const route = MODEL_ROUTES[context ?? "insights"] ?? MODEL_ROUTES.insights;
+    let model = route.primary;
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -90,7 +245,7 @@ serve(async (req) => {
         "X-Title": "SignalStack",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           ...messages,
@@ -99,35 +254,66 @@ serve(async (req) => {
       }),
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limited — please wait and try again." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Auto-fallback: if primary model fails, retry with fallback
+    if (!response.ok && (response.status === 429 || response.status >= 500)) {
+      console.warn(`Primary model ${model} failed (${response.status}), falling back to ${route.fallback}`);
+      model = route.fallback;
+
+      const fallbackResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://signalstack.africa",
+          "X-Title": "SignalStack",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...messages,
+          ],
+          stream: true,
+        }),
+      });
+
+      if (!fallbackResponse.ok) {
+        const t = await fallbackResponse.text();
+        console.error("Fallback model error:", fallbackResponse.status, t);
+        return new Response(JSON.stringify({ error: "AI service temporarily unavailable. Please try again." }), {
+          status: 503,
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         });
       }
+
+      return new Response(fallbackResponse.body, {
+        headers: { ...corsHeaders(req), "Content-Type": "text/event-stream" },
+      });
+    }
+
+    if (!response.ok) {
       if (response.status === 402 || response.status === 401) {
         return new Response(JSON.stringify({ error: "OpenRouter API key issue. Check OPENROUTER secret in Supabase." }), {
           status: response.status,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         });
       }
       const t = await response.text();
       console.error("OpenRouter error:", response.status, t);
       return new Response(JSON.stringify({ error: "AI service error" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
     return new Response(response.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      headers: { ...corsHeaders(req), "Content-Type": "text/event-stream" },
     });
   } catch (e) {
     console.error("ai-chat error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

@@ -1,87 +1,60 @@
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { useRealtimeSellOut } from "@/hooks/useRealtimeSellOut";
 import { useAuth } from "@/contexts/AuthContext";
-import { DollarSign, ShoppingCart, Tag, Package, Inbox, Upload, Eye, MousePointerClick, TrendingUp, Megaphone, Target, Zap, BarChart3, CircleDollarSign } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Link } from "react-router-dom";
+import { DollarSign, ShoppingCart, Tag, Package, Eye, MousePointerClick, TrendingUp, Megaphone, Target, Zap, BarChart3, CircleDollarSign, Loader2, Database } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
-import { Skeleton } from "@/components/ui/skeleton";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
+import KpiCard from "@/components/KpiCard";
+import EmptyState from "@/components/EmptyState";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
-import { supabase } from "@/integrations/supabase/client";
+import { useCampaignData } from "@/hooks/useCampaignData";
+import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
+import { seedDemoData } from "@/services/demoDataSeeder";
 import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, LINE_COLORS, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import DataQualityPanel from "@/components/DataQualityPanel";
-
-type CampaignRow = {
-  flight_start: string | null;
-  flight_end: string | null;
-  platform: string | null;
-  campaign_name: string | null;
-  spend: number | null;
-  impressions: number | null;
-  clicks: number | null;
-  conversions: number | null;
-  revenue: number | null;
-};
+import { useToast } from "@/hooks/use-toast";
 
 const DashboardHome = () => {
   const reportRef = useRef<HTMLDivElement>(null);
   const { data, loading, refetch } = useSellOutData();
+  const { data: campaigns, loading: campaignLoading, refetch: refetchCampaigns } = useCampaignData();
   const { user } = useAuth();
-  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [campaignLoading, setCampaignLoading] = useState(true);
+  const { toast } = useToast();
+  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const [demoLoading, setDemoLoading] = useState(false);
   const hasData = data.length > 0;
   const hasCampaigns = campaigns.length > 0;
+
+  // Period-over-Period comparison
+  const comparison = usePeriodComparison(data, campaigns, periodType);
 
   // Auto-refresh dashboard when sell_out_data changes in real time
   useRealtimeSellOut(user?.id, refetch);
 
-  const fetchCampaigns = async () => {
-    setCampaignLoading(true);
+  const handleLoadDemo = async () => {
+    setDemoLoading(true);
     try {
-      // Scope campaigns to the same project as sell-out data
-      const { data: projects } = await supabase.from("projects").select("id").limit(1);
-      const projectId = projects?.[0]?.id;
-      let query = supabase
-        .from("campaign_data_v2")
-        .select("flight_start,flight_end,platform,campaign_name,spend,impressions,clicks,conversions,revenue");
-      if (projectId) query = query.eq("project_id", projectId);
-      const { data: cd } = await query.limit(5000);
-      setCampaigns(cd ?? []);
-    } catch (err) {
-      console.error("[DashboardHome] Failed to fetch campaigns:", err);
-      setCampaigns([]);
+      const result = await seedDemoData();
+      toast({ title: "Demo data loaded", description: `${result.sellOutRows} sell-out rows + ${result.campaignRows} campaign rows inserted.` });
+      refetch();
+      refetchCampaigns();
+    } catch (err: any) {
+      toast({ title: "Failed to load demo data", description: err.message, variant: "destructive" });
     } finally {
-      setCampaignLoading(false);
+      setDemoLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchCampaigns();
-  }, []);
-
-  // Auto-refresh campaigns via realtime
-  useEffect(() => {
-    if (!user) return;
-    const channel = supabase
-      .channel("realtime-campaigns-dash")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "campaign_data_v2", filter: `user_id=eq.${user.id}` },
-        () => fetchCampaigns()
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user]);
 
   // --- Sell-out KPIs ---
   const totalRevenue = data.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
@@ -90,10 +63,10 @@ const DashboardHome = () => {
   const uniqueProducts = new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size;
 
   const sellOutKpis = [
-    { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign },
-    { label: "Units Sold", value: totalUnits.toLocaleString(), icon: ShoppingCart },
-    { label: "Avg Order Value", value: fmtZAR(avgOrderValue), icon: Tag },
-    { label: "Unique Products", value: uniqueProducts.toString(), icon: Package },
+    { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
+    { label: "Units Sold", value: totalUnits.toLocaleString(), icon: ShoppingCart, delta: comparison.units.deltaPct },
+    { label: "Avg Order Value", value: fmtZAR(avgOrderValue), icon: Tag, delta: comparison.aov.deltaPct },
+    { label: "Unique Products", value: uniqueProducts.toString(), icon: Package, delta: comparison.products.deltaPct },
   ];
 
   // --- Campaign KPIs ---
@@ -192,6 +165,14 @@ const DashboardHome = () => {
           <p className="text-muted-foreground text-sm">Multi-retailer performance + campaign data — unified.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
+            <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="WoW">Week-on-Week</SelectItem>
+              <SelectItem value="MoM">Month-on-Month</SelectItem>
+              <SelectItem value="YoY">Year-on-Year</SelectItem>
+            </SelectContent>
+          </Select>
           <ExportCsvButton
             filename="Dashboard"
             headers={["Metric", "Value"]}
@@ -218,21 +199,7 @@ const DashboardHome = () => {
         {/* Sell-Out KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {sellOutKpis.map((kpi, i) => (
-            <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
-              <Card className="glass-card card-hover">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{kpi.label}</span>
-                    <div className="h-7 w-7 rounded-md bg-primary/8 flex items-center justify-center">
-                      <kpi.icon className="h-3.5 w-3.5 text-primary" />
-                    </div>
-                  </div>
-                  {isLoading ? <Skeleton className="h-8 w-24" /> : (
-                    <p className="font-display text-2xl font-bold">{kpi.value}</p>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
+            <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} loading={isLoading} delay={i * 0.06} delta={kpi.delta} />
           ))}
         </div>
 
@@ -339,34 +306,22 @@ const DashboardHome = () => {
             <h2 className="font-display text-lg font-semibold mb-3">Campaign Performance</h2>
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
               {campaignKpis.map((kpi, i) => (
-                <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.05 }}>
-                  <Card className="glass-card card-hover">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{kpi.label}</span>
-                        <div className="h-7 w-7 rounded-md bg-chart-4/15 flex items-center justify-center">
-                          <kpi.icon className="h-3.5 w-3.5 text-chart-4" />
-                        </div>
-                      </div>
-                      {campaignLoading ? <Skeleton className="h-8 w-24" /> : (
-                        <p className="font-display text-xl font-bold">{kpi.value}</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </motion.div>
+                <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} loading={campaignLoading} delay={0.3 + i * 0.05} colorClass="bg-chart-4/15 text-chart-4" />
               ))}
             </div>
           </>
         )}
 
         {!isLoading && !hasData && !hasCampaigns && (
-          <Card className="mb-6">
-            <CardContent className="p-12 text-center">
-              <Inbox className="h-10 w-10 mx-auto text-muted-foreground/30 mb-4" />
-              <p className="text-muted-foreground mb-3">Upload sell-out or campaign data to see your dashboard.</p>
-              <Link to="/upload"><Button variant="outline" size="sm"><Upload className="h-3.5 w-3.5 mr-1.5" />Go to Upload Hub</Button></Link>
-            </CardContent>
-          </Card>
+          <div className="mb-6 space-y-4">
+            <EmptyState message="Upload sell-out or campaign data to see your dashboard." />
+            <div className="flex justify-center">
+              <Button variant="outline" size="sm" onClick={handleLoadDemo} disabled={demoLoading}>
+                {demoLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Database className="h-3.5 w-3.5 mr-1.5" />}
+                {demoLoading ? "Loading demo data..." : "Load Demo Data"}
+              </Button>
+            </div>
+          </div>
         )}
 
         {(hasData || hasCampaigns) && (

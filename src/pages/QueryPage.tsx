@@ -37,8 +37,8 @@ const QueryPage = () => {
     const init = async () => {
       // Check both sell_out_data and campaign_data_v2 for data availability
       const [soRes, cpRes] = await Promise.all([
-        supabase.from("sell_out_data").select("id", { count: "exact", head: true }),
-        supabase.from("campaign_data_v2").select("id", { count: "exact", head: true }),
+        supabase.from("sell_out_data").select("id", { count: "exact", head: true }).is("deleted_at", null),
+        supabase.from("campaign_data_v2").select("id", { count: "exact", head: true }).is("deleted_at", null),
       ]);
       setHasData(((soRes.count ?? 0) + (cpRes.count ?? 0)) > 0);
 
@@ -66,6 +66,11 @@ const QueryPage = () => {
       if (!validTables.includes(querySpec.table)) return null;
 
       let query = supabase.from(querySpec.table as any).select(querySpec.select);
+
+      // Always exclude soft-deleted rows
+      if (["sell_out_data", "campaign_data_v2", "narrative_reports", "computed_metrics"].includes(querySpec.table)) {
+        query = query.is("deleted_at", null);
+      }
 
       if (querySpec.filters) {
         for (const f of querySpec.filters) {

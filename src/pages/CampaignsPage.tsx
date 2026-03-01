@@ -1,70 +1,36 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
-import { supabase } from "@/integrations/supabase/client";
-import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, Upload, Inbox, ArrowUpDown } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, ArrowUpDown } from "lucide-react";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
+import KpiCard from "@/components/KpiCard";
+import EmptyState from "@/components/EmptyState";
 import { fmtZAR, useSellOutData } from "@/hooks/useSellOutData";
+import { useCampaignData } from "@/hooks/useCampaignData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, LINE_COLORS } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 
-type CampaignRow = {
-  flight_start: string | null;
-  flight_end: string | null;
-  platform: string | null;
-  channel: string | null;
-  campaign_name: string | null;
-  impressions: number | null;
-  clicks: number | null;
-  spend: number | null;
-  conversions: number | null;
-  revenue: number | null;
-};
-
 type SortKey = "campaign_name" | "spend" | "impressions" | "clicks" | "conversions" | "revenue" | "roas";
 
 const CampaignsPage = () => {
-  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: campaigns, loading } = useCampaignData();
   const [platformFilter, setPlatformFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortAsc, setSortAsc] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const { data: sellOutData } = useSellOutData();
-
-  useEffect(() => {
-    const loadCampaigns = async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from("campaign_data_v2")
-          .select("flight_start,flight_end,platform,channel,campaign_name,impressions,clicks,spend,conversions,revenue")
-          .limit(5000);
-        if (error) throw error;
-        setCampaigns(data ?? []);
-      } catch (err) {
-        console.error("[CampaignsPage] Failed to fetch campaigns:", err);
-        setCampaigns([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCampaigns();
-  }, []);
 
   const platforms = useMemo(() => [...new Set(campaigns.map((c) => c.platform).filter(Boolean))].sort() as string[], [campaigns]);
   const filtered = platformFilter === "all" ? campaigns : campaigns.filter((c) => c.platform === platformFilter);
@@ -225,31 +191,13 @@ const CampaignsPage = () => {
             {[1, 2, 3, 4, 5, 6].map((i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}
           </div>
         ) : !hasData ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Inbox className="h-10 w-10 mx-auto text-muted-foreground/30 mb-4" />
-              <p className="text-muted-foreground mb-3">Upload campaign data to see performance metrics.</p>
-              <Link to="/upload"><Button variant="outline" size="sm"><Upload className="h-3.5 w-3.5 mr-1.5" />Go to Upload Hub</Button></Link>
-            </CardContent>
-          </Card>
+          <EmptyState message="Upload campaign data to see performance metrics." />
         ) : (
           <>
             {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
               {kpis.map((kpi, i) => (
-                <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                  <Card className="glass-card card-hover">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{kpi.label}</span>
-                        <div className="h-7 w-7 rounded-md bg-chart-4/15 flex items-center justify-center">
-                          <kpi.icon className="h-3.5 w-3.5 text-chart-4" />
-                        </div>
-                      </div>
-                      <p className="font-display text-xl font-bold">{kpi.value}</p>
-                    </CardContent>
-                  </Card>
-                </motion.div>
+                <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} delay={i * 0.05} colorClass="bg-chart-4/15 text-chart-4" />
               ))}
             </div>
 

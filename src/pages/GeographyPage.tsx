@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Inbox } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
+import EmptyState from "@/components/EmptyState";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
@@ -47,7 +47,7 @@ const GeographyPage = () => {
   const dataSummary = `Top Stores: ${storeData.map((s) => `${s.store} (${fmtZAR(s.revenue)})`).join(", ")}. Regions: ${regionData.map((r) => `${r.region} (${fmtZAR(r.revenue)})`).join(", ")}.`;
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData) return <div className="p-8 text-center"><Inbox className="h-10 w-10 mx-auto text-muted-foreground/30 mb-4" /><p className="text-muted-foreground">Upload data to see geographic analytics.</p></div>;
+  if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see geographic analytics." /></div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">

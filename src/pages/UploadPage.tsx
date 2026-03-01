@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { generatePreview, processFileClientSide, reprocessFromStorage, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
+import { runLearningPipeline } from "@/services/learningPipeline";
 import type { SchemaReport } from "@/lib/canonical-schemas";
 
 type AgentStatus = "pending" | "running" | "done";
@@ -71,6 +72,7 @@ const UploadPage = () => {
     const { data } = await supabase
       .from("data_uploads")
       .select("id, file_name, file_type, file_size, source_name, source_type, status, created_at, row_count, storage_path")
+      .neq("status", "archived")
       .order("created_at", { ascending: false });
     setExistingUploads(data ?? []);
     setLoadingUploads(false);
@@ -185,6 +187,11 @@ const UploadPage = () => {
         updateFile(fileId, { status: "done", progress: 100, processingMessage: "Done!" });
         const typeLabel = result.detectedType === "mixed" ? "Sell-out + Campaign" : result.detectedType === "campaign" ? "Campaign" : "Sell-out";
         toast({ title: "File processed", description: `${result.rowsInserted} rows inserted as ${typeLabel} data.` });
+
+        // Trigger learning pipeline (non-blocking)
+        const { data: projects } = await supabase.from("projects").select("id").limit(1);
+        const pId = projects?.[0]?.id;
+        if (pId) runLearningPipeline(pId, userId).catch(() => {});
       }
     } catch (err: any) {
       updateFile(fileId, { status: "error", error: err.message || "Processing failed", processingMessage: undefined });

@@ -432,8 +432,8 @@ const Landing = () => {
             <span>&copy; 2026 SignalStack by Pot Labs.</span>
           </div>
           <div className="flex gap-6">
-            <a href="#" title="Coming soon" className="hover:text-foreground transition-colors">Privacy</a>
-            <a href="#" title="Coming soon" className="hover:text-foreground transition-colors">Terms</a>
+            <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+            <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <a href="mailto:hello@potstrategy.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </div>
