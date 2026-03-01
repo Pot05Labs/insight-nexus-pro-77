@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
@@ -490,6 +489,180 @@ function buildCampaignResult(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Lightweight XLSX Parser (uses JSZip, no xlsx library)              */
+/* ------------------------------------------------------------------ */
+
+function colToIndex(col: string): number {
+  let idx = 0;
+  for (let i = 0; i < col.length; i++) {
+    idx = idx * 26 + (col.charCodeAt(i) - 64);
+  }
+  return idx - 1;
+}
+
+async function parseXLSX(blob: Blob): Promise<ParsedResult> {
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+
+  // 1. Read shared strings table
+  const sharedStrings: string[] = [];
+  const ssFile = zip.files["xl/sharedStrings.xml"];
+  if (ssFile) {
+    const ssXml = await ssFile.async("text");
+    const siRegex = /<si>([\s\S]*?)<\/si>/g;
+    let siMatch;
+    while ((siMatch = siRegex.exec(ssXml)) !== null) {
+      const tParts: string[] = [];
+      const tRegex = /<t[^>]*>([^<]*)<\/t>/g;
+      let tMatch;
+      while ((tMatch = tRegex.exec(siMatch[1])) !== null) {
+        tParts.push(tMatch[1]);
+      }
+      sharedStrings.push(tParts.join(""));
+    }
+  }
+
+  // 2. Determine which sheet file to use
+  //    Try sheet1.xml first, fall back to first available sheet
+  let sheetXml = "";
+  const sheetFile = zip.files["xl/worksheets/sheet1.xml"];
+  if (sheetFile) {
+    sheetXml = await sheetFile.async("text");
+  } else {
+    const sheetKeys = Object.keys(zip.files)
+      .filter(k => /^xl\/worksheets\/sheet\d+\.xml$/i.test(k))
+      .sort();
+    if (sheetKeys.length === 0) throw new Error("No worksheet found in XLSX file.");
+    sheetXml = await zip.files[sheetKeys[0]].async("text");
+  }
+
+  // 3. Parse date formats from styles.xml for date detection
+  const dateFormatIds = new Set<number>();
+  const stylesFile = zip.files["xl/styles.xml"];
+  if (stylesFile) {
+    const stylesXml = await stylesFile.async("text");
+    // Built-in date format IDs (Excel standard)
+    for (const id of [14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58]) {
+      dateFormatIds.add(id);
+    }
+    // Custom date formats
+    const fmtRegex = /<numFmt\s+numFmtId="(\d+)"\s+formatCode="([^"]*)"/g;
+    let fmtMatch;
+    while ((fmtMatch = fmtRegex.exec(stylesXml)) !== null) {
+      const code = fmtMatch[2].toLowerCase();
+      if (/[ymd]/.test(code) && !/[#0]/.test(code)) {
+        dateFormatIds.add(parseInt(fmtMatch[1]));
+      }
+    }
+  }
+
+  // 4. Parse all rows
+  const parsedRows: { cells: { col: number; value: string }[] }[] = [];
+  let maxCol = 0;
+
+  const rowRegex = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  let rowMatch;
+  while ((rowMatch = rowRegex.exec(sheetXml)) !== null) {
+    const cells: { col: number; value: string }[] = [];
+
+    // Match cells — handle both self-closing and content cells
+    const cellRegex = /<c\s+r="([A-Z]{1,3})(\d+)"([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    let cellMatch;
+    while ((cellMatch = cellRegex.exec(rowMatch[1])) !== null) {
+      const colStr = cellMatch[1];
+      const attrs = cellMatch[3] ?? "";
+      const content = cellMatch[4] ?? "";
+      const col = colToIndex(colStr);
+      if (col > maxCol) maxCol = col;
+
+      // Extract type and style
+      const typeMatch = attrs.match(/t="([^"]*)"/);
+      const styleMatch = attrs.match(/s="(\d+)"/);
+      const type = typeMatch?.[1] ?? "";
+      const _style = styleMatch ? parseInt(styleMatch[1]) : -1;
+
+      // Extract value
+      const vMatch = content.match(/<v>([^<]*)<\/v>/);
+      const rawVal = vMatch?.[1] ?? "";
+
+      let value = rawVal;
+
+      if (type === "s") {
+        // Shared string
+        const ssIdx = parseInt(rawVal);
+        value = (ssIdx >= 0 && ssIdx < sharedStrings.length) ? sharedStrings[ssIdx] : rawVal;
+      } else if (type === "inlineStr") {
+        // Inline string
+        const isMatch = content.match(/<is>[\s\S]*?<t[^>]*>([^<]*)<\/t>/);
+        value = isMatch?.[1] ?? rawVal;
+      } else if (type === "b") {
+        // Boolean
+        value = rawVal === "1" ? "TRUE" : "FALSE";
+      } else if (!type && rawVal) {
+        // Number — check if it's a date serial
+        const numVal = parseFloat(rawVal);
+        if (!isNaN(numVal) && numVal > 40000 && numVal < 55000) {
+          // Likely an Excel date serial (1909-2050 range)
+          // Convert Excel serial to ISO date
+          const excelEpoch = new Date(1899, 11, 30);
+          const d = new Date(excelEpoch.getTime() + numVal * 86400000);
+          if (!isNaN(d.getTime())) {
+            value = d.toISOString().split("T")[0];
+          }
+        }
+      }
+
+      cells.push({ col, value: value.trim() });
+    }
+
+    if (cells.length > 0) {
+      parsedRows.push({ cells });
+    }
+  }
+
+  if (parsedRows.length < 2) throw new Error("XLSX file has no data rows.");
+
+  // 5. Build header row and data rows
+  const headerCells = parsedRows[0].cells;
+  const headers: string[] = new Array(maxCol + 1).fill("");
+  for (const c of headerCells) {
+    headers[c.col] = c.value || `Column_${c.col + 1}`;
+  }
+  // Remove trailing empty headers
+  while (headers.length > 0 && !headers[headers.length - 1]) headers.pop();
+  // Fill any remaining gaps
+  for (let i = 0; i < headers.length; i++) {
+    if (!headers[i]) headers[i] = `Column_${i + 1}`;
+  }
+
+  const dataRows: Record<string, unknown>[] = [];
+  for (let r = 1; r < parsedRows.length; r++) {
+    const rowCells = parsedRows[r].cells;
+    if (rowCells.length === 0) continue;
+
+    const obj: Record<string, unknown> = {};
+    let hasValue = false;
+    for (const c of rowCells) {
+      if (c.col < headers.length && c.value) {
+        obj[headers[c.col]] = c.value;
+        hasValue = true;
+      }
+    }
+    // Skip completely empty rows
+    if (hasValue) {
+      // Fill missing columns with null
+      for (const h of headers) {
+        if (!(h in obj)) obj[h] = null;
+      }
+      dataRows.push(obj);
+    }
+  }
+
+  if (dataRows.length === 0) throw new Error("XLSX file has no data rows after parsing.");
+
+  return { headers, rows: dataRows };
+}
+
+/* ------------------------------------------------------------------ */
 /*  CSV Parser                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -627,11 +800,9 @@ Deno.serve(async (req) => {
           return obj;
         });
       } else if (fileType === "xlsx" || fileType === "xls") {
-        const buffer = await fileBlob.arrayBuffer();
-        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
-        if (jsonRows.length > 0) headers = Object.keys(jsonRows[0]);
+        const result = await parseXLSX(fileBlob);
+        headers = result.headers;
+        jsonRows = result.rows;
       } else if (fileType === "pptx") {
         const result = await parsePPTX(fileBlob);
         headers = result.headers;
