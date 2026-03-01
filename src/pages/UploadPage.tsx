@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { generatePreview, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
+import { orchestrateUpload, type UploadResult } from "@/services/uploadOrchestrator";
 import { runLearningPipeline } from "@/services/learningPipeline";
 import type { SchemaReport } from "@/lib/canonical-schemas";
 
@@ -224,19 +225,65 @@ const UploadPage = () => {
   };
 
   const runProcessing = async (fileId: string, uploadId: string, file: File, sourceName: string | null, userId: string) => {
-    updateFile(fileId, { status: "processing", progress: 20, processingMessage: "Sending to server..." });
-    try {
-      // Fire the edge function (non-blocking — we poll for status)
-      supabase.functions.invoke("process-upload", {
-        body: { uploadId },
-      }).catch(err => {
-        console.error("[runProcessing] Edge function invoke error:", err);
-      });
+    updateFile(fileId, { status: "processing", progress: 5, processingMessage: "Starting..." });
 
-      // Poll for completion
-      await pollUploadStatus(fileId, uploadId, userId);
+    try {
+      const result: UploadResult = await orchestrateUpload(
+        file, uploadId, userId, sourceName,
+        (progress) => {
+          updateFile(fileId, {
+            progress: Math.max(5, progress.percent),
+            processingMessage: progress.stage,
+          });
+          // Advance agent indicators
+          const stageIdx = progress.percent < 25 ? 0
+            : progress.percent < 40 ? 1
+            : progress.percent < 90 ? 2
+            : 3;
+          setFiles(prev => prev.map(f => {
+            if (f.id !== fileId) return f;
+            return {
+              ...f,
+              agents: f.agents.map((a, i) => ({
+                ...a,
+                status: i < stageIdx ? "done" as AgentStatus
+                  : i === stageIdx ? "running" as AgentStatus
+                  : "pending" as AgentStatus,
+              })),
+            };
+          }));
+        },
+      );
+
+      // Mark all agents as done
+      setFiles(prev => prev.map(f =>
+        f.id === fileId
+          ? { ...f, agents: f.agents.map(a => ({ ...a, status: "done" as AgentStatus })) }
+          : f
+      ));
+
+      if (result.success) {
+        const { audit } = result;
+        updateFile(fileId, { status: "done", progress: 100, processingMessage: "Done!" });
+        const typeLabel = result.dataType === "mixed" ? "Sell-out + Campaign"
+          : result.dataType === "campaign" ? "Campaign" : "Sell-out";
+        let desc = `${audit.successfulInserts.toLocaleString()} rows inserted as ${typeLabel} data.`;
+        if (audit.failedInserts > 0) desc += ` ${audit.failedInserts} rows failed.`;
+        if (result.mapping.source === "llm") desc += " (AI-assisted mapping)";
+        toast({ title: "File processed", description: desc });
+      } else {
+        updateFile(fileId, {
+          status: "error",
+          error: result.error || "Processing failed",
+          processingMessage: undefined,
+        });
+      }
     } catch (err: any) {
-      updateFile(fileId, { status: "error", error: err.message || "Processing failed", processingMessage: undefined });
+      updateFile(fileId, {
+        status: "error",
+        error: err.message || "Processing failed",
+        processingMessage: undefined,
+      });
     }
     fetchUploads();
   };
