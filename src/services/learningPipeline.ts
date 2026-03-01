@@ -95,7 +95,7 @@ async function buildDataProfile(projectId: string): Promise<DataProfile | null> 
 
 async function detectTrends(projectId: string, currentProfile: DataProfile): Promise<TrendInsight[]> {
   // Fetch previous data_profile intelligence to compare
-  const { data: prevIntel } = await supabase
+  const { data: prevIntel } = await (supabase as any)
     .from("client_intelligence")
     .select("content")
     .eq("project_id", projectId)
@@ -237,7 +237,7 @@ async function upsertIntelligence(
   dataPoints: number
 ): Promise<void> {
   // Check if intelligence of this type already exists for this project
-  const { data: existing } = await supabase
+  const { data: existing } = await (supabase as any)
     .from("client_intelligence")
     .select("id, data_points_used")
     .eq("project_id", projectId)
@@ -249,7 +249,7 @@ async function upsertIntelligence(
     // Update existing — confidence increases with more data
     const prevPoints = existing[0].data_points_used ?? 0;
     const newConfidence = Math.min(0.95, confidence + (prevPoints > 100 ? 0.05 : 0));
-    await supabase
+    await (supabase as any)
       .from("client_intelligence")
       .update({
         content,
@@ -260,7 +260,7 @@ async function upsertIntelligence(
       .eq("id", existing[0].id);
   } else {
     // Insert new
-    await supabase.from("client_intelligence").insert({
+    await (supabase as any).from("client_intelligence").insert({
       user_id: userId,
       project_id: projectId,
       intelligence_type: intelligenceType,

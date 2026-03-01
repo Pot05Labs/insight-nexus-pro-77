@@ -109,7 +109,7 @@ export async function seedDemoData(): Promise<{ sellOutRows: number; campaignRow
 
   // Generate 6 months of sell-out data (Sep 2025 - Feb 2026)
   const dates = generateDateRange("2025-09-01", "2026-02-28");
-  const sellOutRecords: Record<string, unknown>[] = [];
+  const sellOutRecords: any[] = [];
 
   for (const date of dates) {
     const dayOfWeek = new Date(date).getDay();
@@ -166,7 +166,7 @@ export async function seedDemoData(): Promise<{ sellOutRows: number; campaignRow
   }
 
   // Generate campaign data across the same period
-  const campaignRecords: Record<string, unknown>[] = [];
+  const campaignRecords: any[] = [];
   for (const campaign of CAMPAIGNS) {
     // Each campaign runs for 2-6 weeks
     const startOffset = rand(0, 140);
