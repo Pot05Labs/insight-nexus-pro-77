@@ -246,7 +246,7 @@ export async function orchestrateUpload(
       );
       audit.attemptedInserts += records.length;
 
-      const { error } = await supabase.from("sell_out_data").insert(records);
+      const { error } = await supabase.from("sell_out_data").insert(records as any);
       if (error) {
         audit.failedInserts += records.length;
         audit.failedBatches.push(`sell_out batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
@@ -261,7 +261,7 @@ export async function orchestrateUpload(
       );
       if (!isSellOut) audit.attemptedInserts += records.length;
 
-      const { error } = await supabase.from("campaign_data_v2").insert(records);
+      const { error } = await supabase.from("campaign_data_v2").insert(records as any);
       if (error) {
         if (!isSellOut) audit.failedInserts += records.length;
         audit.failedBatches.push(`campaign batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
