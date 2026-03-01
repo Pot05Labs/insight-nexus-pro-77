@@ -66,7 +66,8 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
     .select("date, retailer, product_name_raw, region, category, revenue, units_sold, units_supplied, cost")
     .eq("project_id", projectId)
     .is("deleted_at", null)
-    .order("date", { ascending: true });
+    .order("date", { ascending: true })
+    .limit(100000);
 
   if (error || !data || data.length === 0) return null;
 
@@ -120,7 +121,8 @@ async function computeCampaignMetrics(projectId: string): Promise<CampaignMetric
     .from("campaign_data_v2")
     .select("platform, channel, campaign_name, spend, impressions, clicks, ctr, conversions, revenue")
     .eq("project_id", projectId)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .limit(50000);
 
   if (error || !data || data.length === 0) return null;
 

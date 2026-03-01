@@ -67,8 +67,14 @@ export const SELL_OUT_SCHEMA: Record<string, SchemaField> = {
     required: true,
     description: "Sales value (ZAR)",
     aliases: ["revenue", "sales", "total_sales", "net_sales", "gross_sales", "sales_value",
-      "ordered_value", "ordered value", "merchandise_sales", "merchandise sales",
+      "ordered_value", "ordered value",
       "amount", "value", "turnover", "net_revenue", "gross_revenue", "total_value"],
+  },
+  actual_revenue: {
+    required: false,
+    description: "Actual sales/merchandise value (vs ordered value)",
+    aliases: ["merchandise_sales", "merchandise sales", "actual_sales",
+      "actual_revenue", "sell_through_value", "sell_through", "net_merchandise"],
   },
   units_sold: {
     required: true,

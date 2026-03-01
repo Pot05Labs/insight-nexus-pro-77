@@ -29,7 +29,8 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
     .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
     .eq("project_id", projectId)
     .is("deleted_at", null)
-    .order("date", { ascending: true });
+    .order("date", { ascending: true })
+    .limit(50000);
 
   return (rows as SellOutRow[]) ?? [];
 }

@@ -249,6 +249,53 @@ export type Database = {
           },
         ]
       }
+      client_intelligence: {
+        Row: {
+          id: string
+          user_id: string
+          project_id: string
+          intelligence_type: string
+          content: Json
+          confidence: number | null
+          data_points_used: number | null
+          last_updated_at: string | null
+          created_at: string | null
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          project_id: string
+          intelligence_type: string
+          content?: Json
+          confidence?: number | null
+          data_points_used?: number | null
+          last_updated_at?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          project_id?: string
+          intelligence_type?: string
+          content?: Json
+          confidence?: number | null
+          data_points_used?: number | null
+          last_updated_at?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_intelligence_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       computed_metrics: {
         Row: {
           computed_at: string | null

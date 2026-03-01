@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { generatePreview, processFileClientSide, reprocessFromStorage, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
+import { generatePreview, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
 import { runLearningPipeline } from "@/services/learningPipeline";
 import type { SchemaReport } from "@/lib/canonical-schemas";
 
@@ -148,51 +148,93 @@ const UploadPage = () => {
   const updateFile = (id: string, updates: Partial<UploadFile>) =>
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
 
-  const runProcessing = async (fileId: string, uploadId: string, file: File, sourceName: string | null, userId: string) => {
-    updateFile(fileId, { status: "processing", progress: 20, processingMessage: "Parsing file..." });
-    try {
-      const result = await processFileClientSide(file, uploadId, userId, sourceName, (p) => {
+  const pollUploadStatus = async (fileId: string, uploadId: string, userId: string): Promise<void> => {
+    let done = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 150; // 5 minutes at 2s intervals
+
+    while (!done && attempts < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, 2000));
+      attempts++;
+
+      const { data: upload } = await supabase
+        .from("data_uploads")
+        .select("status, row_count, error_message, data_type, column_mapping")
+        .eq("id", uploadId)
+        .single();
+
+      if (!upload) continue;
+
+      // Update progress message
+      const stageProgress: Record<string, number> = {
+        "Parsing file...": 30,
+        "Classifying columns...": 50,
+        "Inserting data...": 65,
+        "Computing metrics...": 85,
+        "Done!": 100,
+      };
+      if (upload.status === "processing" && upload.error_message) {
+        const pct = stageProgress[upload.error_message] ?? undefined;
         updateFile(fileId, {
-          progress: Math.max(20, p.percent),
-          processingMessage: p.stage,
+          processingMessage: upload.error_message,
+          ...(pct ? { progress: pct } : {}),
         });
-        // Advance agent indicators based on stage index
-        setFiles((prev) =>
-          prev.map((f) => {
-            if (f.id !== fileId) return f;
-            return {
-              ...f,
-              agents: f.agents.map((a, i) => ({
-                ...a,
-                status: i < p.stageIndex ? "done" as AgentStatus
-                  : i === p.stageIndex ? "running" as AgentStatus
-                  : "pending" as AgentStatus,
-              })),
-            };
-          })
-        );
-      });
+      }
 
-      setFiles((prev) =>
-        prev.map((f) =>
+      if (upload.status === "ready") {
+        done = true;
+        const typeLabel = upload.data_type === "mixed" ? "Sell-out + Campaign"
+          : upload.data_type === "campaign" ? "Campaign" : "Sell-out";
+
+        setFiles(prev => prev.map(f =>
           f.id === fileId
-            ? { ...f, agents: f.agents.map((a) => ({ ...a, status: "done" as AgentStatus })) }
+            ? { ...f, agents: f.agents.map(a => ({ ...a, status: "done" as AgentStatus })) }
             : f
-        )
-      );
+        ));
 
-      if (result.rowsInserted === 0) {
-        updateFile(fileId, { status: "error", error: "No rows could be parsed. Check column headers match expected format.", processingMessage: undefined });
-      } else {
         updateFile(fileId, { status: "done", progress: 100, processingMessage: "Done!" });
-        const typeLabel = result.detectedType === "mixed" ? "Sell-out + Campaign" : result.detectedType === "campaign" ? "Campaign" : "Sell-out";
-        toast({ title: "File processed", description: `${result.rowsInserted} rows inserted as ${typeLabel} data.` });
+        toast({
+          title: "File processed",
+          description: `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
+        });
 
-        // Trigger learning pipeline (non-blocking)
+        // Trigger learning pipeline
         const { data: projects } = await supabase.from("projects").select("id").limit(1);
         const pId = projects?.[0]?.id;
         if (pId) runLearningPipeline(pId, userId).catch(() => {});
       }
+
+      if (upload.status === "error") {
+        done = true;
+        updateFile(fileId, {
+          status: "error",
+          error: upload.error_message || "Processing failed on server",
+          processingMessage: undefined,
+        });
+      }
+    }
+
+    if (!done) {
+      updateFile(fileId, {
+        status: "error",
+        error: "Processing timed out. Check upload history for status.",
+        processingMessage: undefined,
+      });
+    }
+  };
+
+  const runProcessing = async (fileId: string, uploadId: string, file: File, sourceName: string | null, userId: string) => {
+    updateFile(fileId, { status: "processing", progress: 20, processingMessage: "Sending to server..." });
+    try {
+      // Fire the edge function (non-blocking — we poll for status)
+      supabase.functions.invoke("process-upload", {
+        body: { uploadId },
+      }).catch(err => {
+        console.error("[runProcessing] Edge function invoke error:", err);
+      });
+
+      // Poll for completion
+      await pollUploadStatus(fileId, uploadId, userId);
     } catch (err: any) {
       updateFile(fileId, { status: "error", error: err.message || "Processing failed", processingMessage: undefined });
     }
@@ -526,8 +568,15 @@ const UploadPage = () => {
                                 const { data: { session } } = await supabase.auth.getSession();
                                 if (!session) { setRetrying(null); return; }
                                 try {
-                                  const result = await reprocessFromStorage(u.id, u.storage_path, u.file_name, session.user.id, u.source_name);
-                                  toast({ title: "Reprocessed", description: `${u.file_name}: ${result.rowsInserted} rows inserted as ${result.detectedType === "campaign" ? "Campaign" : "Sell-out"} data.` });
+                                  // Clear old data
+                                  await Promise.all([
+                                    supabase.from("sell_out_data").delete().eq("upload_id", u.id),
+                                    supabase.from("campaign_data_v2").delete().eq("upload_id", u.id),
+                                  ]);
+                                  // Reprocess via edge function
+                                  supabase.functions.invoke("process-upload", { body: { uploadId: u.id } }).catch(console.error);
+                                  await pollUploadStatus(u.id, u.id, session.user.id);
+                                  toast({ title: "Reprocessed", description: "File has been reprocessed." });
                                 } catch (err: any) {
                                   toast({ title: "Retry failed", description: err.message, variant: "destructive" });
                                 }

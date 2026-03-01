@@ -52,6 +52,12 @@ export async function runLearningPipeline(projectId: string, userId: string): Pr
       await upsertIntelligence(userId, projectId, "entity_map", entityMap, 0.8, profile.rowCount);
     }
 
+    // Step 5: Build campaign profile
+    const campaignProfile = await buildCampaignProfile(projectId);
+    if (campaignProfile) {
+      await upsertIntelligence(userId, projectId, "campaign_profile", campaignProfile, 0.9, campaignProfile.rowCount as number);
+    }
+
     console.info("[LearningPipeline] Intelligence updated for project:", projectId);
   } catch (err) {
     console.error("[LearningPipeline] Failed:", err);
@@ -185,6 +191,40 @@ async function buildEntityMap(projectId: string): Promise<Record<string, unknown
     retailerCategories: Object.fromEntries(
       Object.entries(retailerCategories).map(([k, v]) => [k, [...v]])
     ),
+  };
+}
+
+async function buildCampaignProfile(projectId: string): Promise<Record<string, unknown> | null> {
+  const { data: rows } = await supabase
+    .from("campaign_data_v2")
+    .select("platform, campaign_name, spend, impressions, clicks, conversions, revenue, flight_start")
+    .eq("project_id", projectId)
+    .is("deleted_at", null);
+
+  if (!rows || rows.length === 0) return null;
+
+  const platforms = [...new Set(rows.map(r => r.platform).filter(Boolean))];
+  const campaigns = [...new Set(rows.map(r => r.campaign_name).filter(Boolean))];
+  const totalSpend = rows.reduce((s, r) => s + Number(r.spend ?? 0), 0);
+  const totalImpressions = rows.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
+  const totalClicks = rows.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
+  const totalConversions = rows.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
+  const totalRevenue = rows.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const avgCTR = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const dates = rows.map(r => r.flight_start).filter(Boolean).sort();
+
+  return {
+    platforms,
+    campaigns,
+    totalSpend: Math.round(totalSpend),
+    totalImpressions,
+    totalClicks,
+    totalConversions,
+    avgCTR: Math.round(avgCTR * 100) / 100,
+    roas: Math.round(roas * 100) / 100,
+    dateRange: { min: dates[0] ?? "", max: dates[dates.length - 1] ?? "" },
+    rowCount: rows.length,
   };
 }
 
