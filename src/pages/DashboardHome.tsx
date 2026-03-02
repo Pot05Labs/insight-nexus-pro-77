@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useRealtimeSellOut } from "@/hooks/useRealtimeSellOut";
+import { useRealtimeCampaign } from "@/hooks/useRealtimeCampaign";
 import { useAuth } from "@/contexts/AuthContext";
 import { DollarSign, ShoppingCart, Tag, Package, Eye, MousePointerClick, TrendingUp, Megaphone, Target, Zap, BarChart3, CircleDollarSign, Loader2, Database } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
@@ -39,8 +40,9 @@ const DashboardHome = () => {
   // Period-over-Period comparison
   const comparison = usePeriodComparison(data, campaigns, periodType);
 
-  // Auto-refresh dashboard when sell_out_data changes in real time
+  // Auto-refresh dashboard when sell_out_data or campaign_data_v2 changes in real time
   useRealtimeSellOut(user?.id, refetch);
+  useRealtimeCampaign(user?.id, refetchCampaigns);
 
   const handleLoadDemo = async () => {
     setDemoLoading(true);
@@ -152,8 +154,63 @@ const DashboardHome = () => {
     spend: Math.round(monthMapSpend[month] ?? 0),
   }));
 
-  // Data summary for AI
-  const dataSummary = `Total Revenue: ${fmtZAR(totalRevenue)}, Units Sold: ${totalUnits.toLocaleString()}, Avg Order Value: ${fmtZAR(avgOrderValue)}, Unique Products: ${uniqueProducts}. Top Brands: ${brandData.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)})`).join(", ")}. Categories: ${categoryData.slice(0, 5).map((c) => `${c.category} (${fmtZAR(c.revenue)})`).join(", ")}. Campaign Spend: ${fmtZAR(totalSpend)}, Impressions: ${totalImpressions.toLocaleString()}, Clicks: ${totalClicks.toLocaleString()}, CTR: ${ctr.toFixed(2)}%, ROAS: ${roas.toFixed(1)}x, iROAS: ${iROAS.toFixed(1)}x, eCPM: ${fmtZAR(eCPM)}, CPS: ${fmtZAR(cps)}.${attributionResults.length > 0 ? ` Top campaigns by lift: ${attributionResults.slice(0, 3).map((r) => `${r.campaign_name} (${r.liftPct.toFixed(0)}% lift, ${r.incrementalROAS.toFixed(1)}x iROAS)`).join(", ")}.` : ""}`;
+  // Rich multi-section data summary for AI insights
+  const dataSummary = useMemo(() => {
+    const sections: string[] = [];
+
+    // Sell-out summary
+    if (hasData) {
+      const retailers = [...new Set(data.map(r => r.retailer).filter(Boolean))];
+      const regions = [...new Set(data.map(r => r.region).filter(Boolean))];
+      const dateRange = data.length > 0
+        ? `${data.reduce((min, r) => r.date && r.date < min ? r.date : min, data[0]?.date ?? "")} to ${data.reduce((max, r) => r.date && r.date > max ? r.date : max, data[0]?.date ?? "")}`
+        : "N/A";
+      sections.push(
+        `[SELL-OUT PERFORMANCE]\nTotal Revenue: ${fmtZAR(totalRevenue)} | Units Sold: ${totalUnits.toLocaleString()} | AOV: ${fmtZAR(avgOrderValue)} | Unique Products: ${uniqueProducts}\nDate Range: ${dateRange}\nRetailers (${retailers.length}): ${retailers.slice(0, 8).join(", ")}${retailers.length > 8 ? ` +${retailers.length - 8} more` : ""}\nRegions: ${regions.slice(0, 9).join(", ") || "N/A"}`
+      );
+
+      // Brands
+      if (brandData.length > 0) {
+        sections.push(
+          `[TOP BRANDS BY REVENUE]\n${brandData.map((b, i) => `${i + 1}. ${b.brand}: ${fmtZAR(b.revenue)}`).join("\n")}`
+        );
+      }
+
+      // Categories
+      if (categoryData.length > 0) {
+        sections.push(
+          `[CATEGORY BREAKDOWN]\n${categoryData.map(c => `${c.category}: ${fmtZAR(c.revenue)}`).join(" | ")}`
+        );
+      }
+    }
+
+    // Campaign summary
+    if (hasCampaigns) {
+      const platforms = [...new Set(campaigns.map(c => c.platform).filter(Boolean))];
+      sections.push(
+        `[CAMPAIGN PERFORMANCE]\nTotal Ad Spend: ${fmtZAR(totalSpend)} | Impressions: ${totalImpressions.toLocaleString()} | Clicks: ${totalClicks.toLocaleString()}\nCTR: ${ctr.toFixed(2)}% | eCPM: ${fmtZAR(eCPM)} | CPC: ${fmtZAR(cpc)} | CPS: ${fmtZAR(cps)}\nROAS: ${roas.toFixed(1)}x | iROAS: ${iROAS.toFixed(1)}x\nPlatforms: ${platforms.join(", ") || "N/A"}\nConversions: ${totalConversions.toLocaleString()} | Campaign Revenue: ${fmtZAR(totalCampaignRevenue)}`
+      );
+    }
+
+    // Attribution
+    if (attributionResults.length > 0) {
+      sections.push(
+        `[CAMPAIGN ATTRIBUTION — TOP PERFORMERS]\n${attributionResults.slice(0, 5).map((r, i) => `${i + 1}. ${r.campaign_name} (${r.platform}): ${r.liftPct.toFixed(0)}% lift, ${fmtZAR(r.incrementalRevenue)} incremental revenue, ${r.incrementalROAS.toFixed(1)}x iROAS`).join("\n")}\nTotal Incremental Revenue: ${fmtZAR(totalIncrementalRevenue)}`
+      );
+    }
+
+    // Period comparison
+    if (comparison.revenue.deltaPct !== 0) {
+      sections.push(
+        `[${periodType} COMPARISON]\nRevenue: ${comparison.revenue.deltaPct > 0 ? "+" : ""}${comparison.revenue.deltaPct.toFixed(1)}% | Units: ${comparison.units.deltaPct > 0 ? "+" : ""}${comparison.units.deltaPct.toFixed(1)}% | AOV: ${comparison.aov.deltaPct > 0 ? "+" : ""}${comparison.aov.deltaPct.toFixed(1)}%`
+      );
+    }
+
+    return sections.join("\n\n");
+  }, [data, campaigns, brandData, categoryData, attributionResults, comparison, periodType,
+      totalRevenue, totalUnits, avgOrderValue, uniqueProducts, totalSpend, totalImpressions,
+      totalClicks, ctr, eCPM, cpc, cps, roas, iROAS, totalConversions, totalCampaignRevenue,
+      totalIncrementalRevenue, hasData, hasCampaigns]);
 
   const isLoading = loading || campaignLoading;
 

@@ -103,24 +103,64 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
   }, [messages]);
 
   const buildDataContext = async (): Promise<string> => {
-    const [salesRes, metricsRes] = await Promise.all([
-      supabase.from("sell_out_data").select("retailer, brand, product_name_raw, revenue, units_sold, date").is("deleted_at", null).order("date", { ascending: false }).limit(50),
-      supabase.from("computed_metrics").select("metric_name, metric_value, dimensions").limit(30),
-    ]);
+    // Get user's project for scoping
+    const { data: projects } = await supabase.from("projects").select("id").limit(1);
+    const projectId = projects?.[0]?.id;
+
+    let salesQuery = supabase
+      .from("sell_out_data")
+      .select("retailer, brand, product_name_raw, category, region, revenue, units_sold, cost, date")
+      .is("deleted_at", null)
+      .order("date", { ascending: false })
+      .limit(200);
+    if (projectId) salesQuery = salesQuery.eq("project_id", projectId);
+
+    let metricsQuery = supabase
+      .from("computed_metrics")
+      .select("metric_name, metric_value, dimensions")
+      .limit(30);
+    if (projectId) metricsQuery = metricsQuery.eq("project_id", projectId);
+
+    let campaignQuery = supabase
+      .from("campaign_data_v2")
+      .select("campaign_name, platform, channel, spend, impressions, clicks, conversions, revenue, flight_start, flight_end")
+      .is("deleted_at", null)
+      .order("flight_start", { ascending: false })
+      .limit(100);
+    if (projectId) campaignQuery = campaignQuery.eq("project_id", projectId);
+
+    const [salesRes, metricsRes, campaignRes] = await Promise.all([salesQuery, metricsQuery, campaignQuery]);
 
     const parts: string[] = [];
     if (salesRes.data?.length) {
       const totalRev = salesRes.data.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
       const totalUnits = salesRes.data.reduce((s, r) => s + (Number(r.units_sold) || 0), 0);
+      const totalCost = salesRes.data.reduce((s, r) => s + (Number(r.cost) || 0), 0);
       const retailers = [...new Set(salesRes.data.map(r => r.retailer).filter(Boolean))];
       const brands = [...new Set(salesRes.data.map(r => r.brand).filter(Boolean))];
-      parts.push(`SELL-OUT SUMMARY (latest ${salesRes.data.length} rows): Total Revenue: R${totalRev.toLocaleString()} (ZAR), Total Units: ${totalUnits.toLocaleString()}, Retailers: ${retailers.join(", ") || "N/A"}, Brands: ${brands.join(", ") || "N/A"}`);
+      const categories = [...new Set(salesRes.data.map(r => r.category).filter(Boolean))];
+      const regions = [...new Set(salesRes.data.map(r => r.region).filter(Boolean))];
+      const dates = salesRes.data.map(r => r.date).filter(Boolean).sort();
+      const dateRange = dates.length > 0 ? `${dates[0]} to ${dates[dates.length - 1]}` : "N/A";
+
+      parts.push(`SELL-OUT SUMMARY (${salesRes.data.length} rows):\nTotal Revenue: R${totalRev.toLocaleString()} (ZAR) | Total Units: ${totalUnits.toLocaleString()} | Total Cost: R${totalCost.toLocaleString()}\nDate Range: ${dateRange}\nRetailers: ${retailers.join(", ") || "N/A"}\nBrands: ${brands.join(", ") || "N/A"}\nCategories: ${categories.join(", ") || "N/A"}\nRegions: ${regions.join(", ") || "N/A"}`);
+
+      // Include sample rows for richer context
+      const sampleRows = salesRes.data.slice(0, 5);
+      parts.push(`Sample rows:\n${sampleRows.map(r => `${r.date} | ${r.retailer ?? "?"} | ${r.brand ?? "?"} | ${r.product_name_raw ?? "?"} | R${Number(r.revenue ?? 0).toLocaleString()} | ${r.units_sold ?? 0} units`).join("\n")}`);
+    }
+    if (campaignRes.data?.length) {
+      const totalSpend = campaignRes.data.reduce((s, r) => s + (Number(r.spend) || 0), 0);
+      const totalImpressions = campaignRes.data.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
+      const totalClicks = campaignRes.data.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
+      const platforms = [...new Set(campaignRes.data.map(r => r.platform).filter(Boolean))];
+      parts.push(`CAMPAIGN SUMMARY (${campaignRes.data.length} rows):\nTotal Spend: R${totalSpend.toLocaleString()} | Impressions: ${totalImpressions.toLocaleString()} | Clicks: ${totalClicks.toLocaleString()}\nPlatforms: ${platforms.join(", ") || "N/A"}`);
     }
     if (metricsRes.data?.length) {
       const metricsSummary = metricsRes.data.map(m => `${m.metric_name}: ${m.metric_value}`).join("; ");
       parts.push(`COMPUTED METRICS: ${metricsSummary}`);
     }
-    return parts.length ? `\n\n[DATA CONTEXT]\n${parts.join("\n")}` : "";
+    return parts.length ? `\n\n[DATA CONTEXT]\n${parts.join("\n\n")}` : "";
   };
 
   const send = async (text: string) => {

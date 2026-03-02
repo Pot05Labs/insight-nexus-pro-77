@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, FileSpreadsheet, FileText, File as FileLucide, Presentation, FileJson, FileCode, X, CheckCircle2, AlertCircle, Loader2, Brain, Search, Calculator, PenTool, FileSearch, Trash2, Inbox, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,7 @@ const UploadPage = () => {
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const fetchUploads = async () => {
     setLoadingUploads(true);
@@ -285,6 +287,10 @@ const UploadPage = () => {
         processingMessage: undefined,
       });
     }
+    // Invalidate React Query caches so dashboard/pages show new data
+    queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
+    queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
     fetchUploads();
   };
 
@@ -353,6 +359,10 @@ const UploadPage = () => {
       await supabase.from("data_uploads").delete().eq("id", deleteTarget.id);
 
       toast({ title: "File deleted", description: `${deleteTarget.file_name} and related data removed.` });
+      // Invalidate caches after deletion
+      queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
+      queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
+      queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
     } catch (err) {
       console.error("[UploadPage] Delete failed:", err);
       toast({ title: "Delete failed", description: "Could not delete file. Please try again.", variant: "destructive" });

@@ -62,7 +62,7 @@ const QueryPage = () => {
 
   const executeQuery = async (querySpec: { table: string; select: string; filters?: { column: string; operator: string; value: string }[]; order?: { column: string; ascending: boolean }; limit?: number }): Promise<QueryResult | null> => {
     try {
-      const validTables = ["sell_out_data", "campaign_data_v2", "harmonized_sales", "computed_metrics"];
+      const validTables = ["sell_out_data", "campaign_data_v2", "computed_metrics"];
       if (!validTables.includes(querySpec.table)) return null;
 
       let query = supabase.from(querySpec.table as any).select(querySpec.select);

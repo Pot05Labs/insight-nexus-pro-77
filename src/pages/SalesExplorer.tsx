@@ -24,10 +24,23 @@ const SalesExplorer = () => {
   useEffect(() => {
     const fetchSales = async () => {
       setLoading(true);
-      const { data } = await supabase.from("harmonized_sales").select("*").order("date", { ascending: false }).limit(500);
+      // Get the user's project
+      const { data: projects } = await supabase.from("projects").select("id").limit(1);
+      const projectId = projects?.[0]?.id;
+
+      let query = supabase
+        .from("sell_out_data")
+        .select("date, sku, product_name_raw, retailer, revenue, units_sold, cost")
+        .is("deleted_at", null)
+        .order("date", { ascending: false })
+        .limit(500);
+
+      if (projectId) query = query.eq("project_id", projectId);
+
+      const { data } = await query;
       setSales((data ?? []).map((d) => ({
-        date: d.date, sku: d.sku ?? "", product_name: d.product_name ?? "", channel: d.channel ?? "",
-        revenue: Number(d.revenue) || 0, units_sold: d.units_sold ?? 0, returns: d.returns ?? 0, cost: Number(d.cost) || 0,
+        date: d.date, sku: d.sku ?? "", product_name: d.product_name_raw ?? "", channel: d.retailer ?? "",
+        revenue: Number(d.revenue) || 0, units_sold: d.units_sold ?? 0, returns: 0, cost: Number(d.cost) || 0,
       })));
       setLoading(false);
     };
