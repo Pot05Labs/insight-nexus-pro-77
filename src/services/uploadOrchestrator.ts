@@ -237,6 +237,16 @@ export async function orchestrateUpload(
   const isSellOut = mapping.dataType === "sell_out" || mapping.dataType === "mixed";
   const isCampaign = mapping.dataType === "campaign" || mapping.dataType === "mixed";
 
+  // Diagnostic logging
+  console.log(`[orchestrator] Data type: ${mapping.dataType}, Source: ${mapping.source}, Confidence: ${mapping.confidence}`);
+  console.log(`[orchestrator] Field mapping:`, JSON.stringify(mapping.fieldMap));
+  console.log(`[orchestrator] Unmapped columns:`, mapping.unmappedColumns);
+
+  if (isSellOut && dataRows.length > 0) {
+    const sampleTransformed = toSellOutRecord(dataRows[0], mapping, uploadId, userId, projectId!, sourceName);
+    console.log(`[orchestrator] Sample sell-out record:`, JSON.stringify(sampleTransformed));
+  }
+
   for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
     const batch = dataRows.slice(i, i + BATCH_SIZE);
 

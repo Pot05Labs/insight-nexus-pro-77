@@ -272,6 +272,8 @@ const UploadPage = () => {
         let desc = `${audit.successfulInserts.toLocaleString()} rows inserted as ${typeLabel} data.`;
         if (audit.failedInserts > 0) desc += ` ${audit.failedInserts} rows failed.`;
         if (result.mapping.source === "llm") desc += " (AI-assisted mapping)";
+        console.log(`[upload] Mapping used:`, result.mapping.fieldMap);
+        console.log(`[upload] Unmapped columns:`, result.mapping.unmappedColumns);
         toast({ title: "File processed", description: desc });
       } else {
         updateFile(fileId, {

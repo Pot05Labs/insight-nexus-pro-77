@@ -122,12 +122,21 @@ const QueryPage = () => {
     };
 
     try {
+      // Get user session for authenticated Edge Function calls
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession) {
+        upsert("⚠️ Not logged in. Please sign in to use query features.");
+        setLoading(false);
+        return;
+      }
+
       // First, get the AI to generate a query spec (non-streaming for structured output)
       const queryResp = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          Authorization: `Bearer ${authSession.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({ messages: [...messages, userMsg], context: "query" }),
       });

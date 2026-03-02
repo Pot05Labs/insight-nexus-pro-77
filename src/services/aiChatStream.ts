@@ -1,3 +1,5 @@
+import { supabase } from "@/integrations/supabase/client";
+
 export type Msg = { role: "user" | "assistant"; content: string };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
@@ -15,6 +17,13 @@ export async function streamAiChat({
   onDone: () => void;
   onError: (msg: string) => void;
 }) {
+  // Get user session for authenticated Edge Function calls
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    onError("Not logged in. Please sign in to use AI features.");
+    return;
+  }
+
   // Add a timeout controller (60s for AI responses)
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
@@ -24,7 +33,8 @@ export async function streamAiChat({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       },
       body: JSON.stringify({ messages, context }),
       signal: controller.signal,
