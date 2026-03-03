@@ -109,6 +109,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
       .from("projects")
       .select("id")
       .eq("user_id", user?.id ?? "")
+      .order("created_at", { ascending: false })
       .limit(1);
     const projectId = projects?.[0]?.id;
 

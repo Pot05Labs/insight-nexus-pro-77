@@ -27,19 +27,41 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
     .from("projects")
     .select("id")
     .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
     .limit(1);
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 
-  const { data: rows } = await supabase
-    .from("sell_out_data")
-    .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
-    .eq("project_id", projectId)
-    .is("deleted_at", null)
-    .order("date", { ascending: true })
-    .limit(50000);
+  // Fetch ALL rows for the project (no arbitrary limit).
+  // Supabase PostgREST default is 1000 rows per request, so we
+  // paginate to retrieve everything.
+  const PAGE_SIZE = 10000;
+  let allRows: SellOutRow[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  return (rows as SellOutRow[]) ?? [];
+  while (hasMore) {
+    const { data: page, error } = await supabase
+      .from("sell_out_data")
+      .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
+      .eq("project_id", projectId)
+      .is("deleted_at", null)
+      .order("date", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error("[useSellOutData] Fetch error at offset", offset, error.message);
+      break;
+    }
+
+    const rows = (page as SellOutRow[]) ?? [];
+    allRows = allRows.concat(rows);
+    offset += PAGE_SIZE;
+    hasMore = rows.length === PAGE_SIZE;
+  }
+
+  console.log(`[useSellOutData] Fetched ${allRows.length} total sell-out rows`);
+  return allRows;
 }
 
 export function useSellOutData() {
@@ -48,6 +70,8 @@ export function useSellOutData() {
   const { data = [], isLoading } = useQuery({
     queryKey: ["sell-out-data"],
     queryFn: fetchSellOutData,
+    staleTime: 30_000,          // Don't refetch within 30s of a successful fetch
+    refetchOnWindowFocus: false, // Avoid redundant refetches when switching tabs
   });
 
   const refetch = () => queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });

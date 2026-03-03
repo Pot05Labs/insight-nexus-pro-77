@@ -104,11 +104,12 @@ function localMatch(headers: string[]): ColumnMapping {
     if (SELL_OUT_SIGNALS.has(nh)) soScore++;
     if (CAMPAIGN_SIGNALS.has(nh)) cpScore++;
     // Also check substring inclusion for compound headers
+    // Only check if header CONTAINS signal (not reverse — avoids false positives)
     for (const sig of SELL_OUT_SIGNALS) {
-      if (nh.includes(sig) || sig.includes(nh)) { soScore += 0.5; break; }
+      if (nh.includes(sig)) { soScore += 0.5; break; }
     }
     for (const sig of CAMPAIGN_SIGNALS) {
-      if (nh.includes(sig) || sig.includes(nh)) { cpScore += 0.5; break; }
+      if (nh.includes(sig)) { cpScore += 0.5; break; }
     }
   }
 
@@ -152,13 +153,14 @@ function localMatch(headers: string[]): ColumnMapping {
         break;
       }
     }
-    // Substring match if no exact
+    // Substring match if no exact — only check if header CONTAINS alias
+    // (NOT the reverse, which caused false matches like "qty" matching "orderedqty")
     if (!fieldMap[canonical]) {
       for (let i = 0; i < normHeaders.length; i++) {
         if (usedHeaders.has(headers[i])) continue;
         const nh = normHeaders[i];
         for (const alias of aliases) {
-          if (nh.includes(alias) || alias.includes(nh)) {
+          if (nh.includes(alias)) {
             fieldMap[canonical] = headers[i];
             usedHeaders.add(headers[i]);
             break;

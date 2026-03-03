@@ -72,9 +72,12 @@ const UploadPage = () => {
 
   const fetchUploads = async () => {
     setLoadingUploads(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoadingUploads(false); return; }
     const { data } = await supabase
       .from("data_uploads")
       .select("id, file_name, file_type, file_size, source_name, source_type, status, created_at, row_count, storage_path")
+      .eq("user_id", user.id)
       .neq("status", "archived")
       .order("created_at", { ascending: false });
     setExistingUploads(data ?? []);
@@ -201,8 +204,13 @@ const UploadPage = () => {
           description: `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
         });
 
+        // Invalidate dashboard caches so new data appears immediately
+        queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
+        queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
+        queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
+
         // Trigger learning pipeline
-        const { data: projects } = await supabase.from("projects").select("id").eq("user_id", userId).limit(1);
+        const { data: projects } = await supabase.from("projects").select("id").eq("user_id", userId).order("created_at", { ascending: false }).limit(1);
         const pId = projects?.[0]?.id;
         if (pId) runLearningPipeline(pId, userId).catch(() => {});
       }

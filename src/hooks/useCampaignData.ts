@@ -22,22 +22,38 @@ async function fetchCampaignData(): Promise<CampaignRow[]> {
     .from("projects")
     .select("id")
     .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
     .limit(1);
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 
-  const { data, error } = await supabase
-    .from("campaign_data_v2")
-    .select("flight_start,flight_end,platform,channel,campaign_name,impressions,clicks,spend,conversions,revenue")
-    .is("deleted_at", null)
-    .eq("project_id", projectId)
-    .limit(5000);
+  // Paginate to retrieve ALL campaign rows (no arbitrary limit)
+  const PAGE_SIZE = 5000;
+  let allRows: CampaignRow[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  if (error) {
-    console.error("[useCampaignData] Failed to fetch:", error);
-    return [];
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from("campaign_data_v2")
+      .select("flight_start,flight_end,platform,channel,campaign_name,impressions,clicks,spend,conversions,revenue")
+      .is("deleted_at", null)
+      .eq("project_id", projectId)
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error("[useCampaignData] Fetch error at offset", offset, error.message);
+      break;
+    }
+
+    const rows = (data as CampaignRow[]) ?? [];
+    allRows = allRows.concat(rows);
+    offset += PAGE_SIZE;
+    hasMore = rows.length === PAGE_SIZE;
   }
-  return (data as CampaignRow[]) ?? [];
+
+  console.log(`[useCampaignData] Fetched ${allRows.length} total campaign rows`);
+  return allRows;
 }
 
 export function useCampaignData() {
@@ -46,6 +62,8 @@ export function useCampaignData() {
   const { data = [], isLoading } = useQuery({
     queryKey: ["campaign-data"],
     queryFn: fetchCampaignData,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 
   const refetch = () => queryClient.invalidateQueries({ queryKey: ["campaign-data"] });

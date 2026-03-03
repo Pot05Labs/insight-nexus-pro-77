@@ -218,6 +218,7 @@ export async function orchestrateUpload(
     .from("projects")
     .select("id")
     .eq("user_id", userId)
+    .order("created_at", { ascending: false })
     .limit(1);
   let projectId = projects?.[0]?.id;
   if (!projectId) {
@@ -305,17 +306,21 @@ export async function orchestrateUpload(
   }
 
   // Update upload record
-  await supabase.from("data_uploads").update({
+  const { error: updateError } = await supabase.from("data_uploads").update({
     status: audit.successfulInserts > 0 ? "ready" : "error",
-    row_count: audit.successfulInserts,
+    row_count: audit.fileRowCount,  // Store total file rows for accurate reporting
     data_type: mapping.dataType,
     column_names: headers,
     column_mapping: mapping.fieldMap,
     project_id: projectId,
     error_message: audit.failedInserts > 0
-      ? `${audit.successfulInserts} inserted, ${audit.failedInserts} failed. ${audit.failedBatches[0] ?? ""}`
+      ? `${audit.successfulInserts} of ${audit.fileRowCount} rows inserted, ${audit.failedInserts} failed. ${audit.failedBatches[0] ?? ""}`
       : (audit.warnings.length > 0 ? audit.warnings.join("; ") : null),
   }).eq("id", uploadId);
+
+  if (updateError) {
+    console.error("[orchestrator] Failed to update upload status:", updateError.message);
+  }
 
   // ══════════════════════════════════════════════════
   //  STEP 6: POST-PROCESSING
