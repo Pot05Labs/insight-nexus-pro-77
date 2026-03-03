@@ -143,8 +143,16 @@ export function toSellOutRecord(
   };
 
   // Revenue priority: actual_revenue (merchandise sales) > revenue (ordered value)
+  // A file may have both "Ordered Value" and "Merchandise Sales".
+  // Merchandise Sales = what was actually sold. Ordered Value includes unfulfilled orders.
   const actualRevenue = toNumber(get("actual_revenue"));
-  const revenue = toNumber(get("revenue"));
+  const orderedRevenue = toNumber(get("revenue"));
+
+  // Units priority: units_supplied (actually delivered/sold) > units_sold (may be ordered qty)
+  // A file may have both "Ordered Qty" and "Supplied Qty".
+  // Supplied Qty = what was actually delivered to shelves. Ordered Qty includes unfulfilled orders.
+  const unitsSold = toInteger(get("units_sold"));
+  const unitsSupplied = toInteger(get("units_supplied"));
 
   return {
     user_id: userId,
@@ -160,9 +168,9 @@ export function toSellOutRecord(
     brand: toText(get("brand")),
     sub_brand: toText(get("sub_brand")),
     format_size: toText(get("format_size")),
-    revenue: actualRevenue ?? revenue,  // prefer merchandise sales
-    units_sold: toInteger(get("units_sold")),
-    units_supplied: toInteger(get("units_supplied")),
+    revenue: actualRevenue ?? orderedRevenue,      // prefer merchandise sales over ordered value
+    units_sold: unitsSupplied ?? unitsSold,         // prefer supplied/delivered qty over ordered qty
+    units_supplied: unitsSupplied,
     cost: toNumber(get("cost")),
   };
 }
