@@ -122,8 +122,25 @@ function localMatch(headers: string[]): ColumnMapping {
   const fieldMap: Record<string, string> = {};
   const usedHeaders = new Set<string>();
 
+  // For mixed type, merge schemas carefully: sell-out fields first,
+  // then campaign-only fields (avoid overwriting shared keys like "revenue")
   const schemaToUse = dataType === "campaign" ? CAMPAIGN_FIELDS
-    : dataType === "mixed" ? { ...SELL_OUT_FIELDS, ...CAMPAIGN_FIELDS }
+    : dataType === "mixed" ? (() => {
+        const merged: Record<string, string[]> = { ...SELL_OUT_FIELDS };
+        for (const [key, aliases] of Object.entries(CAMPAIGN_FIELDS)) {
+          if (merged[key]) {
+            // Merge aliases without duplicates — sell-out aliases take priority
+            const combined = [...merged[key]];
+            for (const a of aliases) {
+              if (!combined.includes(a)) combined.push(a);
+            }
+            merged[key] = combined;
+          } else {
+            merged[key] = aliases;
+          }
+        }
+        return merged;
+      })()
     : SELL_OUT_FIELDS;
 
   for (const [canonical, aliases] of Object.entries(schemaToUse)) {

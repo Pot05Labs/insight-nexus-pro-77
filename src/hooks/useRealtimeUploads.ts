@@ -56,7 +56,7 @@ export function useRealtimeUploads(userId: string | undefined) {
               prev.map((u) => (u.id === newRow.id ? { ...u, ...newRow } : u))
             );
             // Toast on status changes
-            if (newRow.status === "processed") {
+            if (newRow.status === "ready") {
               toast({
                 title: "Upload complete",
                 description: `"${newRow.file_name}" has finished processing.`,

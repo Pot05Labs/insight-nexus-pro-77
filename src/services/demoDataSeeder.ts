@@ -81,7 +81,7 @@ export async function seedDemoData(): Promise<{ sellOutRows: number; campaignRow
   const userId = session.user.id;
 
   // Get or create project
-  const { data: projects } = await supabase.from("projects").select("id").limit(1);
+  const { data: projects } = await supabase.from("projects").select("id").eq("user_id", userId).limit(1);
   let projectId = projects?.[0]?.id;
   if (!projectId) {
     const { data: newProject } = await supabase.from("projects").insert({

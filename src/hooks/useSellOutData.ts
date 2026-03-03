@@ -20,7 +20,14 @@ export interface SellOutRow {
 }
 
 async function fetchSellOutData(): Promise<SellOutRow[]> {
-  const { data: projects } = await supabase.from("projects").select("id").limit(1);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("user_id", user.id)
+    .limit(1);
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 

@@ -202,7 +202,7 @@ const UploadPage = () => {
         });
 
         // Trigger learning pipeline
-        const { data: projects } = await supabase.from("projects").select("id").limit(1);
+        const { data: projects } = await supabase.from("projects").select("id").eq("user_id", userId).limit(1);
         const pId = projects?.[0]?.id;
         if (pId) runLearningPipeline(pId, userId).catch(() => {});
       }
@@ -343,24 +343,17 @@ const UploadPage = () => {
     setDeleting(true);
 
     try {
-      // Delete related data first
+      const now = new Date().toISOString();
+      // Soft-delete related data
       await Promise.all([
-        supabase.from("sell_out_data").delete().eq("upload_id", deleteTarget.id),
-        supabase.from("campaign_data_v2").delete().eq("upload_id", deleteTarget.id),
-        supabase.from("harmonized_sales").delete().eq("upload_id", deleteTarget.id),
-        supabase.from("campaign_data").delete().eq("upload_id", deleteTarget.id),
+        supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", deleteTarget.id),
+        supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", deleteTarget.id),
       ]);
 
-      // Delete from storage
-      const { data: upload } = await supabase.from("data_uploads").select("storage_path").eq("id", deleteTarget.id).single();
-      if (upload?.storage_path) {
-        await supabase.storage.from("uploads").remove([upload.storage_path]);
-      }
+      // Archive upload record (soft delete)
+      await supabase.from("data_uploads").update({ status: "archived" } as any).eq("id", deleteTarget.id);
 
-      // Delete upload record
-      await supabase.from("data_uploads").delete().eq("id", deleteTarget.id);
-
-      toast({ title: "File deleted", description: `${deleteTarget.file_name} and related data removed.` });
+      toast({ title: "File archived", description: `${deleteTarget.file_name} and related data archived.` });
       // Invalidate caches after deletion
       queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
       queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
@@ -627,10 +620,11 @@ const UploadPage = () => {
                                 const { data: { session } } = await supabase.auth.getSession();
                                 if (!session) { setRetrying(null); return; }
                                 try {
-                                  // Clear old data
+                                  // Soft-delete old data before reprocessing
+                                  const now = new Date().toISOString();
                                   await Promise.all([
-                                    supabase.from("sell_out_data").delete().eq("upload_id", u.id),
-                                    supabase.from("campaign_data_v2").delete().eq("upload_id", u.id),
+                                    supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", u.id),
+                                    supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", u.id),
                                   ]);
                                   // Reprocess via edge function
                                   supabase.functions.invoke("process-upload", { body: { uploadId: u.id } }).catch(console.error);

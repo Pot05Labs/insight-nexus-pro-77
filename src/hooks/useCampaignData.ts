@@ -15,17 +15,24 @@ export interface CampaignRow {
 }
 
 async function fetchCampaignData(): Promise<CampaignRow[]> {
-  const { data: projects } = await supabase.from("projects").select("id").limit(1);
-  const projectId = projects?.[0]?.id;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
 
-  let query = supabase
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("user_id", user.id)
+    .limit(1);
+  const projectId = projects?.[0]?.id;
+  if (!projectId) return [];
+
+  const { data, error } = await supabase
     .from("campaign_data_v2")
     .select("flight_start,flight_end,platform,channel,campaign_name,impressions,clicks,spend,conversions,revenue")
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .eq("project_id", projectId)
+    .limit(5000);
 
-  if (projectId) query = query.eq("project_id", projectId);
-
-  const { data, error } = await query.limit(5000);
   if (error) {
     console.error("[useCampaignData] Failed to fetch:", error);
     return [];

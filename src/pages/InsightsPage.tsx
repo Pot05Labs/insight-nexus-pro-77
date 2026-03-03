@@ -89,8 +89,8 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
         }
         setGenerating(false);
       },
-      onError: () => {
-        setReport({ executive_summary: "Unable to generate report. Please try again.", insights: [], recommendations: [] });
+      onError: (msg) => {
+        setReport({ executive_summary: `Unable to generate report: ${msg}`, insights: [], recommendations: [] });
         setGenerating(false);
       },
     });
@@ -104,7 +104,12 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
 
   const buildDataContext = async (): Promise<string> => {
     // Get user's project for scoping
-    const { data: projects } = await supabase.from("projects").select("id").limit(1);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("user_id", user?.id ?? "")
+      .limit(1);
     const projectId = projects?.[0]?.id;
 
     let salesQuery = supabase

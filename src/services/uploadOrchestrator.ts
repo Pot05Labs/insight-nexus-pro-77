@@ -214,7 +214,11 @@ export async function orchestrateUpload(
   // ══════════════════════════════════════════════════
   //  STEP 3: GET PROJECT
   // ══════════════════════════════════════════════════
-  const { data: projects } = await supabase.from("projects").select("id").limit(1);
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("user_id", userId)
+    .limit(1);
   let projectId = projects?.[0]?.id;
   if (!projectId) {
     const { data: newProj } = await supabase
@@ -269,14 +273,14 @@ export async function orchestrateUpload(
       const records = batch.map(row =>
         toCampaignRecord(row, mapping, uploadId, userId, projectId!, ext)
       );
-      if (!isSellOut) audit.attemptedInserts += records.length;
+      audit.attemptedInserts += records.length;
 
       const { error } = await supabase.from("campaign_data_v2").insert(records as any);
       if (error) {
-        if (!isSellOut) audit.failedInserts += records.length;
+        audit.failedInserts += records.length;
         audit.failedBatches.push(`campaign batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
       } else {
-        if (!isSellOut) audit.successfulInserts += records.length;
+        audit.successfulInserts += records.length;
       }
     }
 

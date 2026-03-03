@@ -25,7 +25,12 @@ const SalesExplorer = () => {
     const fetchSales = async () => {
       setLoading(true);
       // Get the user's project
-      const { data: projects } = await supabase.from("projects").select("id").limit(1);
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("user_id", user?.id ?? "")
+        .limit(1);
       const projectId = projects?.[0]?.id;
 
       let query = supabase

@@ -254,9 +254,10 @@ serve(async (req) => {
       }),
     });
 
-    // Auto-fallback: if primary model fails, retry with fallback
-    if (!response.ok && (response.status === 429 || response.status >= 500)) {
-      console.warn(`Primary model ${model} failed (${response.status}), falling back to ${route.fallback}`);
+    // Auto-fallback: if primary model fails for any non-auth reason, try fallback
+    if (!response.ok && response.status !== 401 && response.status !== 402) {
+      const primaryErr = await response.text().catch(() => "");
+      console.warn(`[ai-chat] Primary model ${model} failed (${response.status}): ${primaryErr.slice(0, 300)}. Trying fallback: ${route.fallback}`);
       model = route.fallback;
 
       const fallbackResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -278,9 +279,9 @@ serve(async (req) => {
       });
 
       if (!fallbackResponse.ok) {
-        const t = await fallbackResponse.text();
-        console.error("Fallback model error:", fallbackResponse.status, t);
-        return new Response(JSON.stringify({ error: "AI service temporarily unavailable. Please try again." }), {
+        const t = await fallbackResponse.text().catch(() => "");
+        console.error(`[ai-chat] Fallback model ${model} also failed (${fallbackResponse.status}): ${t.slice(0, 300)}`);
+        return new Response(JSON.stringify({ error: `Both AI models failed. Primary (${route.primary}): ${response.status}. Fallback (${model}): ${fallbackResponse.status}. ${t.slice(0, 100)}` }), {
           status: 503,
           headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         });
@@ -292,16 +293,16 @@ serve(async (req) => {
     }
 
     if (!response.ok) {
-      if (response.status === 402 || response.status === 401) {
-        return new Response(JSON.stringify({ error: "OpenRouter API key issue. Check OPENROUTER secret in Supabase." }), {
-          status: response.status,
+      const t = await response.text().catch(() => "");
+      console.error(`[ai-chat] OpenRouter auth error (${response.status}): ${t.slice(0, 300)}`);
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "OpenRouter credits exhausted. Top up your OpenRouter account at openrouter.ai." }), {
+          status: 402,
           headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         });
       }
-      const t = await response.text();
-      console.error("OpenRouter error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI service error" }), {
-        status: 500,
+      return new Response(JSON.stringify({ error: "OpenRouter API key invalid or expired. Check the OPENROUTER secret in Supabase Edge Function settings." }), {
+        status: 401,
         headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }

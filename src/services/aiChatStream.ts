@@ -40,9 +40,23 @@ export async function streamAiChat({
       signal: controller.signal,
     });
 
-    if (resp.status === 429) { onError("Rate limited — please wait a moment and try again."); return; }
-    if (resp.status === 402 || resp.status === 401) { onError("API key issue. Please check configuration."); return; }
-    if (!resp.ok || !resp.body) { onError("Failed to connect to AI."); return; }
+    if (!resp.ok || !resp.body) {
+      // Try to extract the error message from the Edge Function response
+      let errorMsg = `AI request failed (${resp.status})`;
+      try {
+        const errBody = await resp.json();
+        if (errBody.error) errorMsg = errBody.error;
+      } catch {
+        // Response wasn't JSON, use status-based message
+        if (resp.status === 429) errorMsg = "Rate limited — please wait a moment and try again.";
+        else if (resp.status === 402) errorMsg = "OpenRouter credits exhausted. Top up at openrouter.ai.";
+        else if (resp.status === 401) errorMsg = "API key invalid. Check OPENROUTER secret in Supabase.";
+        else if (resp.status === 503) errorMsg = "AI service temporarily unavailable. Please try again.";
+      }
+      console.error(`[aiChatStream] Error ${resp.status}:`, errorMsg);
+      onError(errorMsg);
+      return;
+    }
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -76,6 +90,9 @@ export async function streamAiChat({
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       onError("Response timed out. Please try again.");
+    } else if (err instanceof TypeError && (err.message === "Failed to fetch" || err.message === "NetworkError when attempting to fetch resource.")) {
+      console.error("[aiChatStream] Network error — Edge Function unreachable:", err);
+      onError("Cannot reach AI service. The Edge Function may not be deployed. Run: supabase functions deploy ai-chat");
     } else {
       onError("Something went wrong. Please try again.");
     }
