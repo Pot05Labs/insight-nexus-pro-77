@@ -1,8 +1,7 @@
-import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { FileDown, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface ExportPdfButtonProps {
   targetRef: React.RefObject<HTMLDivElement>;
@@ -11,46 +10,87 @@ interface ExportPdfButtonProps {
 
 const ExportPdfButton = ({ targetRef, filename = "report" }: ExportPdfButtonProps) => {
   const [exporting, setExporting] = useState(false);
-  const { toast } = useToast();
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    const el = targetRef.current;
+    if (!el) return;
+
     setExporting(true);
-    // Use browser print as a reliable cross-browser PDF solution
-    const printContent = targetRef.current;
-    if (!printContent) {
-      setExporting(false);
-      return;
-    }
+    toast.info("Generating PDF...");
 
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      toast({ title: "Error", description: "Please allow pop-ups to export PDF.", variant: "destructive" });
-      setExporting(false);
-      return;
-    }
+    try {
+      // Dynamically import to keep initial bundle small
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${filename}</title>
-        <style>
-          body { font-family: 'Avenir', 'Avenir Next', sans-serif; margin: 2rem; color: #1a1a2e; }
-          * { box-sizing: border-box; }
-          @media print {
-            body { margin: 0; padding: 1rem; }
+      // Capture the element as a high-res canvas
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+
+      // A4 dimensions in mm
+      const pdfWidth = 210;
+      const pdfHeight = 297;
+      const margin = 10;
+      const contentWidth = pdfWidth - margin * 2;
+
+      // Scale image to fit page width
+      const ratio = contentWidth / imgWidth;
+      const scaledHeight = imgHeight * ratio;
+
+      // Create PDF — portrait A4
+      const pdf = new jsPDF("p", "mm", "a4");
+
+      // If content fits on one page, center it; otherwise paginate
+      if (scaledHeight <= pdfHeight - margin * 2) {
+        pdf.addImage(imgData, "PNG", margin, margin, contentWidth, scaledHeight);
+      } else {
+        // Multi-page: slice the canvas into page-sized chunks
+        const pageContentHeight = pdfHeight - margin * 2;
+        const sourcePageHeight = pageContentHeight / ratio;
+        let yOffset = 0;
+        let page = 0;
+
+        while (yOffset < imgHeight) {
+          if (page > 0) pdf.addPage();
+
+          // Create a page-sized canvas slice
+          const sliceHeight = Math.min(sourcePageHeight, imgHeight - yOffset);
+          const pageCanvas = document.createElement("canvas");
+          pageCanvas.width = imgWidth;
+          pageCanvas.height = sliceHeight;
+          const ctx = pageCanvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(canvas, 0, -yOffset);
+            const pageImg = pageCanvas.toDataURL("image/png");
+            const sliceScaledHeight = sliceHeight * ratio;
+            pdf.addImage(pageImg, "PNG", margin, margin, contentWidth, sliceScaledHeight);
           }
-        </style>
-      </head>
-      <body>${printContent.innerHTML}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
+
+          yOffset += sourcePageHeight;
+          page++;
+        }
+      }
+
+      // Trigger automatic download
+      const date = new Date().toISOString().slice(0, 10);
+      pdf.save(`SignalStack-${filename}-${date}.pdf`);
+      toast.success("PDF downloaded");
+    } catch (err: any) {
+      console.error("PDF export failed:", err);
+      toast.error("PDF export failed. Please try again.");
+    } finally {
       setExporting(false);
-    }, 500);
+    }
   };
 
   return (

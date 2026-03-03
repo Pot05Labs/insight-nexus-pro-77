@@ -253,12 +253,14 @@ const DashboardHome = () => {
       </div>
 
       <div ref={reportRef}>
-        {/* Sell-Out KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {sellOutKpis.map((kpi, i) => (
-            <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} loading={isLoading} delay={i * 0.06} delta={kpi.delta} />
-          ))}
-        </div>
+        {/* Sell-Out KPI Cards — only show when data exists or still loading */}
+        {(hasData || isLoading) && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {sellOutKpis.map((kpi, i) => (
+              <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} loading={isLoading} delay={i * 0.06} delta={kpi.delta} />
+            ))}
+          </div>
+        )}
 
         {/* Campaign Efficiency — ROAS, iROAS, eCPM */}
         {hasCampaigns && totalSpend > 0 && !isLoading && (

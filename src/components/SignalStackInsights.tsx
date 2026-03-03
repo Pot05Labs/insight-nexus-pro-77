@@ -155,7 +155,13 @@ const SignalStackInsights = ({
   const [parsed, setParsed] = useState<ParsedOutput | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const hasData = dataSummary.trim().length > 0;
+
   const generate = async () => {
+    if (!hasData) {
+      toast.error("No data available. Upload sell-out or campaign data first.");
+      return;
+    }
     setLoading(true);
     setParsed(null);
     setRawText("");
@@ -277,8 +283,9 @@ Data:\n${dataSummary}`,
               size="sm"
               variant="outline"
               onClick={generate}
-              disabled={loading}
+              disabled={loading || !hasData}
               className="text-xs"
+              title={!hasData ? "Upload data first" : undefined}
             >
               {loading ? (
                 <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -387,8 +394,9 @@ Data:\n${dataSummary}`,
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Click &ldquo;Generate Insights&rdquo; to get AI-powered strategic
-            analysis.
+            {hasData
+              ? 'Click "Generate Insights" to get AI-powered strategic analysis.'
+              : "Upload sell-out or campaign data to unlock AI insights."}
           </p>
         )}
       </CardContent>
