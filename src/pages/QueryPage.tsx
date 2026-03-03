@@ -35,16 +35,20 @@ const QueryPage = () => {
 
   useEffect(() => {
     const init = async () => {
-      // Check both sell_out_data and campaign_data_v2 for data availability
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Check both sell_out_data and campaign_data_v2 for data availability (scoped to user)
       const [soRes, cpRes] = await Promise.all([
-        supabase.from("sell_out_data").select("id", { count: "exact", head: true }).is("deleted_at", null),
-        supabase.from("campaign_data_v2").select("id", { count: "exact", head: true }).is("deleted_at", null),
+        supabase.from("sell_out_data").select("id", { count: "exact", head: true }).eq("user_id", user.id).is("deleted_at", null),
+        supabase.from("campaign_data_v2").select("id", { count: "exact", head: true }).eq("user_id", user.id).is("deleted_at", null),
       ]);
       setHasData(((soRes.count ?? 0) + (cpRes.count ?? 0)) > 0);
 
       const { data } = await supabase
         .from("chat_messages")
         .select("role, content")
+        .eq("user_id", user.id)
         .order("created_at", { ascending: true })
         .limit(100);
       if (data && data.length > 0) {

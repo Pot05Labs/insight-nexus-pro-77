@@ -385,14 +385,36 @@ const UploadPage = () => {
 
     try {
       const now = new Date().toISOString();
-      // Soft-delete related data
-      await Promise.all([
+      // Soft-delete related data — check for errors
+      const [soResult, cpResult] = await Promise.all([
         supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", deleteTarget.id),
         supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", deleteTarget.id),
       ]);
 
+      if (soResult.error) {
+        console.error("[UploadPage] sell_out_data soft-delete failed:", soResult.error.message);
+        throw new Error(`Failed to archive sell-out data: ${soResult.error.message}`);
+      }
+      if (cpResult.error) {
+        console.error("[UploadPage] campaign_data_v2 soft-delete failed:", cpResult.error.message);
+        throw new Error(`Failed to archive campaign data: ${cpResult.error.message}`);
+      }
+
       // Archive upload record (soft delete)
       await supabase.from("data_uploads").update({ status: "archived" } as any).eq("id", deleteTarget.id);
+
+      // Clear stale computed_metrics so dashboard recomputes from surviving data
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: projects } = await supabase
+          .from("projects").select("id").eq("user_id", user.id)
+          .order("created_at", { ascending: false }).limit(1);
+        const projectId = projects?.[0]?.id;
+        if (projectId) {
+          await supabase.from("computed_metrics")
+            .update({ deleted_at: now } as any).eq("project_id", projectId);
+        }
+      }
 
       toast({ title: "File archived", description: `${deleteTarget.file_name} and related data archived.` });
       // Invalidate caches after deletion
@@ -674,12 +696,14 @@ const UploadPage = () => {
                                 const { data: { session } } = await supabase.auth.getSession();
                                 if (!session) { setRetrying(null); return; }
                                 try {
-                                  // Soft-delete old data before reprocessing
+                                  // Soft-delete old data before reprocessing — check errors
                                   const now = new Date().toISOString();
-                                  await Promise.all([
+                                  const [soR, cpR] = await Promise.all([
                                     supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", u.id),
                                     supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", u.id),
                                   ]);
+                                  if (soR.error) throw new Error(soR.error.message);
+                                  if (cpR.error) throw new Error(cpR.error.message);
                                   // Reprocess via edge function
                                   supabase.functions.invoke("process-upload", { body: { uploadId: u.id } }).catch(console.error);
                                   await pollUploadStatus(u.id, u.id, session.user.id);

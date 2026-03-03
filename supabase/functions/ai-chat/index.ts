@@ -33,15 +33,15 @@ function corsHeaders(req: Request) {
 // --- Model Routing ---
 // Use OpenRouter auto-routing to pick the best available model per request.
 // Fallback to Gemini Flash if auto-routing itself fails.
-const MODEL_ROUTES: Record<string, { primary: string; fallback: string }> = {
-  insights:     { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  query:        { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  extraction:   { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  anomaly:      { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  segmentation: { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  schema:       { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  report:       { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
-  learning:     { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+const MODEL_ROUTES: Record<string, { primary: string; fallback: string; maxTokens: number }> = {
+  insights:     { primary: "openrouter/auto",          fallback: "google/gemini-2.5-flash", maxTokens: 2000 },
+  report:       { primary: "openrouter/auto",          fallback: "google/gemini-2.5-flash", maxTokens: 3000 },
+  query:        { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 500  },
+  extraction:   { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1000 },
+  schema:       { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 500  },
+  anomaly:      { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1000 },
+  segmentation: { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1500 },
+  learning:     { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1000 },
 };
 
 // --- Rate Limiting (in-memory, per-instance) ---
@@ -253,6 +253,7 @@ serve(async (req) => {
           ...messages,
         ],
         stream: true,
+        max_tokens: route.maxTokens,
       }),
     });
 

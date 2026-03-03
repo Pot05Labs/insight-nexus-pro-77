@@ -248,8 +248,8 @@ export async function computeMetrics(
       }
 
       if (metricsToStore.length > 0) {
-        // Clear previous computed metrics for this project
-        await supabase.from("computed_metrics").delete().eq("project_id", projectId);
+        // Soft-delete previous computed metrics for this project
+        await supabase.from("computed_metrics").update({ deleted_at: new Date().toISOString() } as any).eq("project_id", projectId).is("deleted_at", null);
         await supabase.from("computed_metrics").insert(metricsToStore);
       }
     }

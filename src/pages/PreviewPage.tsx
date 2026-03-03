@@ -19,20 +19,28 @@ const PreviewPage = () => {
     const fetchLatest = async () => {
       setLoading(true);
 
-      // Get most recent upload
+      // Get authenticated user for tenant scoping
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+
+      // Get most recent upload (scoped to user, excluding archived)
       const { data: uploads } = await supabase
         .from("data_uploads")
         .select("*")
+        .eq("user_id", user.id)
+        .neq("status", "archived")
         .order("created_at", { ascending: false })
         .limit(1);
 
       const latestUpload = uploads?.[0] ?? null;
       setUpload(latestUpload);
 
-      // Get sample harmonized rows
+      // Get sample sell-out rows (scoped to user, respecting soft deletes)
       const { data: rows } = await supabase
-        .from("harmonized_sales")
+        .from("sell_out_data")
         .select("*")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
         .order("date", { ascending: false })
         .limit(20);
 
@@ -44,8 +52,8 @@ const PreviewPage = () => {
 
   const totalRevenue = sampleRows.reduce((a, b) => a + (Number(b.revenue) || 0), 0);
   const totalUnits = sampleRows.reduce((a, b) => a + (b.units_sold ?? 0), 0);
-  const skuCount = new Set(sampleRows.map((r) => r.sku).filter(Boolean)).size;
-  const channelCount = new Set(sampleRows.map((r) => r.channel).filter(Boolean)).size;
+  const skuCount = new Set(sampleRows.map((r) => r.sku ?? r.product_name_raw).filter(Boolean)).size;
+  const channelCount = new Set(sampleRows.map((r) => r.retailer).filter(Boolean)).size;
 
   const columnMappings = upload?.column_mapping
     ? Object.entries(upload.column_mapping as Record<string, string>).map(([source, canonical]) => ({ source, canonical, confidence: 0.95 }))
@@ -126,10 +134,10 @@ const PreviewPage = () => {
                 <CardContent>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { metric: "Total Revenue", value: totalRevenue > 0 ? `$${(totalRevenue / 1000).toFixed(1)}K` : "—" },
+                      { metric: "Total Revenue", value: totalRevenue > 0 ? `R${(totalRevenue / 1000).toFixed(1)}K` : "—" },
                       { metric: "Total Units", value: totalUnits > 0 ? totalUnits.toLocaleString() : "—" },
                       { metric: "SKU Count", value: skuCount > 0 ? skuCount.toString() : "—" },
-                      { metric: "Channels", value: channelCount > 0 ? channelCount.toString() : "—" },
+                      { metric: "Retailers", value: channelCount > 0 ? channelCount.toString() : "—" },
                     ].map((m) => (
                       <div key={m.metric} className="rounded-lg bg-muted/60 p-3">
                         <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{m.metric}</p>
@@ -192,18 +200,18 @@ const PreviewPage = () => {
                           <TableHead className="text-xs">Product</TableHead>
                           <TableHead className="text-xs text-right">Units</TableHead>
                           <TableHead className="text-xs text-right">Revenue</TableHead>
-                          <TableHead className="text-xs">Channel</TableHead>
+                          <TableHead className="text-xs">Retailer</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {sampleRows.map((r, i) => (
                           <TableRow key={i}>
                             <TableCell className="text-sm">{r.date}</TableCell>
-                            <TableCell><Badge variant="outline" className="font-mono text-[10px]">{r.sku ?? "—"}</Badge></TableCell>
-                            <TableCell className="text-sm">{r.product_name ?? "—"}</TableCell>
+                            <TableCell><Badge variant="outline" className="font-mono text-[10px]">{r.sku ?? r.product_name_raw ?? "—"}</Badge></TableCell>
+                            <TableCell className="text-sm">{r.product_name_raw ?? "—"}</TableCell>
                             <TableCell className="text-sm text-right font-medium">{(r.units_sold ?? 0).toLocaleString()}</TableCell>
-                            <TableCell className="text-sm text-right font-medium">${(Number(r.revenue) || 0).toLocaleString()}</TableCell>
-                            <TableCell className="text-sm">{r.channel ?? "—"}</TableCell>
+                            <TableCell className="text-sm text-right font-medium">R{(Number(r.revenue) || 0).toLocaleString()}</TableCell>
+                            <TableCell className="text-sm">{r.retailer ?? "—"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

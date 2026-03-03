@@ -86,6 +86,7 @@ const InsightsPage = () => {
       .from("projects")
       .select("id")
       .eq("user_id", user.id)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1);
     const projectId = projects?.[0]?.id;
@@ -471,7 +472,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
         </h3>
         <p className="text-muted-foreground text-sm mb-4">Chat with your data — powered by AI with live sell-out and campaign context.</p>
 
-        <Card className="flex flex-col" style={{ height: "420px" }}>
+        <Card className="flex flex-col h-[420px]">
           <ScrollArea className="flex-1 p-4" ref={scrollRef}>
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full py-12">
