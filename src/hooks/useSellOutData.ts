@@ -33,9 +33,10 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
   if (!projectId) return [];
 
   // Fetch ALL rows for the project (no arbitrary limit).
-  // Supabase PostgREST default is 1000 rows per request, so we
-  // paginate to retrieve everything.
-  const PAGE_SIZE = 10000;
+  // Supabase PostgREST default max_rows is 1000, so PAGE_SIZE must
+  // be <= 1000 or the server silently truncates the response and
+  // the hasMore check fails (rows.length < PAGE_SIZE → stops early).
+  const PAGE_SIZE = 1000;
   let allRows: SellOutRow[] = [];
   let offset = 0;
   let hasMore = true;

@@ -162,13 +162,22 @@ async function detectTrends(projectId: string, currentProfile: DataProfile): Pro
 }
 
 async function buildEntityMap(projectId: string): Promise<Record<string, unknown> | null> {
-  // Build product name → brand mapping
-  const { data: rows } = await supabase
-    .from("sell_out_data")
-    .select("product_name_raw, brand, retailer, category")
-    .eq("project_id", projectId)
-    .is("deleted_at", null)
-    .limit(5000);
+  // Build product name → brand mapping (paginate — PostgREST max_rows is 1000)
+  let rows: Record<string, unknown>[] = [];
+  let offset = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const { data: page } = await supabase
+      .from("sell_out_data")
+      .select("product_name_raw, brand, retailer, category")
+      .eq("project_id", projectId)
+      .is("deleted_at", null)
+      .range(offset, offset + 999);
+    const batch = (page ?? []) as Record<string, unknown>[];
+    rows = rows.concat(batch);
+    offset += 1000;
+    hasMore = batch.length === 1000;
+  }
 
   if (!rows || rows.length === 0) return null;
 

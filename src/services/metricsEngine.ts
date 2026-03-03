@@ -61,8 +61,9 @@ function aggregate(
 /* ------------------------------------------------------------------ */
 
 async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics | null> {
-  // Paginate to fetch ALL sell-out rows (no hard limit)
-  const PAGE_SIZE = 10000;
+  // Paginate to fetch ALL sell-out rows (no hard limit).
+  // PAGE_SIZE must be <= Supabase PostgREST max_rows (default 1000).
+  const PAGE_SIZE = 1000;
   let data: Record<string, unknown>[] = [];
   let offset = 0;
   let hasMore = true;
@@ -135,8 +136,9 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
 /* ------------------------------------------------------------------ */
 
 async function computeCampaignMetrics(projectId: string): Promise<CampaignMetrics | null> {
-  // Paginate to fetch ALL campaign rows (no hard limit)
-  const PAGE_SIZE = 10000;
+  // Paginate to fetch ALL campaign rows (no hard limit).
+  // PAGE_SIZE must be <= Supabase PostgREST max_rows (default 1000).
+  const PAGE_SIZE = 1000;
   let data: Record<string, unknown>[] = [];
   let offset = 0;
   let hasMore = true;

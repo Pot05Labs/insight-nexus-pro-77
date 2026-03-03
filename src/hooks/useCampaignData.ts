@@ -27,8 +27,9 @@ async function fetchCampaignData(): Promise<CampaignRow[]> {
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 
-  // Paginate to retrieve ALL campaign rows (no arbitrary limit)
-  const PAGE_SIZE = 5000;
+  // Paginate to retrieve ALL campaign rows (no arbitrary limit).
+  // PAGE_SIZE must be <= Supabase PostgREST max_rows (default 1000).
+  const PAGE_SIZE = 1000;
   let allRows: CampaignRow[] = [];
   let offset = 0;
   let hasMore = true;
