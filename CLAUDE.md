@@ -203,6 +203,77 @@ Migrate to this architecture when data exceeds PostgreSQL limits (~10M+ rows in 
 
 ---
 
+## Agent Team Configuration
+
+### Setup
+
+Agent teams are experimental. Enable with:
+```bash
+export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+```
+
+### Available Agents (`.claude/agents/`)
+
+| Agent | File | Owns | Avoid Assigning |
+|-------|------|------|-----------------|
+| **Pipeline Engineer** | `pipeline-engineer.md` | Edge Functions, Supabase queries, file processing migration, data_uploads, upload-to-dashboard flow | Frontend components, UI styling |
+| **Dashboard Engineer** | `dashboard-engineer.md` | React components, pages, Recharts charts, shadcn/ui, PDF export, dark mode, responsive layout | Database migrations, Edge Functions |
+| **Commerce Analyst** | `commerce-analyst.md` | Metrics (ROAS, iROAS, mROAS, ROI), Level 2 features, computed_metrics, anomaly detection, benchmarking, SKU normalisation | Auth flows, deployment, UI polish |
+| **Quality Reviewer** | `quality-reviewer.md` | Code review, security audit, RLS checks, soft-delete compliance, performance, accessibility | Writing new features (review only) |
+| **AI Engineer** | `ai-engineer.md` | ai-chat Edge Function, OpenRouter routing, NLQ, narrative_reports, system prompts | UI components, data pipeline |
+
+### Recommended Team Compositions
+
+**Level 2 Feature Sprint (3 agents):**
+```
+Create an agent team:
+- Pipeline Engineer: build the data queries and Edge Function logic for [feature]
+- Commerce Analyst: define the metric calculations and analytical logic for [feature]
+- Dashboard Engineer: build the UI components to display [feature]
+```
+
+**Full Build Session (4 agents):**
+```
+Create an agent team:
+- Pipeline Engineer: [data/backend task]
+- Commerce Analyst: [metrics/analytics task]
+- Dashboard Engineer: [UI task]
+- Quality Reviewer: review all code from the other three agents when they finish
+```
+
+**Code Audit (2 agents):**
+```
+Create an agent team:
+- Quality Reviewer: audit all code for security, soft-delete compliance, and tenant scoping
+- AI Engineer: audit AI prompts, query generation safety, and model routing efficiency
+```
+
+### File Ownership Rules (Prevent Conflicts)
+
+When running agent teams, assign clear file boundaries:
+
+| Agent | Owns These Paths |
+|-------|-----------------|
+| Pipeline Engineer | `supabase/functions/`, `src/integrations/supabase/` |
+| Dashboard Engineer | `src/components/`, `src/pages/`, `src/hooks/`, `src/styles/` |
+| Commerce Analyst | `src/utils/*metric*`, `src/utils/*analytics*`, metric calculation logic in Edge Functions |
+| AI Engineer | `supabase/functions/ai-chat/`, `src/services/aiChatStream.ts` |
+| Quality Reviewer | Read-only across all paths (does not write new features) |
+
+**Critical:** Two agents must NEVER edit the same file simultaneously. If a task crosses boundaries (e.g., a new metric that needs both backend logic and a dashboard chart), assign sequentially: Commerce Analyst defines the logic first, then Dashboard Engineer builds the UI using the output.
+
+### Git Workflow with Agent Teams
+
+```
+1. Pull latest from GitHub (sync with Lovable)
+2. Create a feature branch: git checkout -b feature/level2-[feature-name]
+3. Run agent team on the feature branch
+4. Quality Reviewer audits the changes
+5. Merge to main → push → Lovable auto-deploys
+```
+
+---
+
 ## Do NOT
 
 - Query tables that don't exist in the schema
