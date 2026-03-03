@@ -497,37 +497,50 @@ const UploadPage = () => {
                 {/* Schema Mapping Report */}
                 {uf.schemaReport && (
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-medium">Schema Mapping</p>
-                      <Badge variant={uf.schemaReport.confidence >= 70 ? "default" : uf.schemaReport.confidence >= 40 ? "secondary" : "destructive"} className="text-[10px]">
-                        {uf.schemaReport.confidence}% match
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">
-                        {uf.schemaReport.dataType === "mixed" ? "Sell-out + Campaign" : uf.schemaReport.dataType === "campaign" ? "Campaign" : "Sell-out"}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {uf.schemaReport.mapped.map((m) => (
-                        <Badge key={m.canonical} variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-700 border-emerald-500/20">
-                          {m.canonical} → {m.sourceColumn}
+                    {uf.schemaReport.confidence === -1 ? (
+                      /* PPTX / AI-extraction mode */
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium">Schema Mapping</p>
+                        <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                          <Brain className="h-3 w-3 mr-1" />AI Extraction
                         </Badge>
-                      ))}
-                      {uf.schemaReport.unmapped.filter((u) => u.required).map((u) => (
-                        <Badge key={u.canonical} variant="outline" className="text-[9px] bg-amber-500/10 text-amber-700 border-amber-500/20">
-                          {u.canonical} — not found
-                        </Badge>
-                      ))}
-                      {uf.schemaReport.unmappedSource.slice(0, 5).map((col) => (
-                        <Badge key={col} variant="outline" className="text-[9px] bg-muted text-muted-foreground">
-                          {col}
-                        </Badge>
-                      ))}
-                      {uf.schemaReport.unmappedSource.length > 5 && (
-                        <Badge variant="outline" className="text-[9px] bg-muted text-muted-foreground">
-                          +{uf.schemaReport.unmappedSource.length - 5} more
-                        </Badge>
-                      )}
-                    </div>
+                        <Badge variant="outline" className="text-[10px]">Campaign</Badge>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-medium">Schema Mapping</p>
+                          <Badge variant={uf.schemaReport.confidence >= 70 ? "default" : uf.schemaReport.confidence >= 40 ? "secondary" : "destructive"} className="text-[10px]">
+                            {uf.schemaReport.confidence}% match
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {uf.schemaReport.dataType === "mixed" ? "Sell-out + Campaign" : uf.schemaReport.dataType === "campaign" ? "Campaign" : "Sell-out"}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {uf.schemaReport.mapped.map((m) => (
+                            <Badge key={m.canonical} variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-700 border-emerald-500/20">
+                              {m.canonical} → {m.sourceColumn}
+                            </Badge>
+                          ))}
+                          {uf.schemaReport.unmapped.filter((u) => u.required).map((u) => (
+                            <Badge key={u.canonical} variant="outline" className="text-[9px] bg-amber-500/10 text-amber-700 border-amber-500/20">
+                              {u.canonical} — not found
+                            </Badge>
+                          ))}
+                          {uf.schemaReport.unmappedSource.slice(0, 5).map((col) => (
+                            <Badge key={col} variant="outline" className="text-[9px] bg-muted text-muted-foreground">
+                              {col}
+                            </Badge>
+                          ))}
+                          {uf.schemaReport.unmappedSource.length > 5 && (
+                            <Badge variant="outline" className="text-[9px] bg-muted text-muted-foreground">
+                              +{uf.schemaReport.unmappedSource.length - 5} more
+                            </Badge>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 

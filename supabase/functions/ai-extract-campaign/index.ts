@@ -7,45 +7,55 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { slideTexts } = await req.json();
+    const { slideTexts, fileName } = await req.json();
     const OPENROUTER_KEY = Deno.env.get("OPENROUTER");
     if (!OPENROUTER_KEY) throw new Error("OPENROUTER secret not set");
 
-    const prompt = `Extract campaign performance data from this South African FMCG post-campaign analysis presentation.
+    const fileContext = fileName ? `\nFILE NAME: ${fileName}\n` : "";
+
+    const prompt = `You are a data extraction specialist for South African FMCG retail media campaigns. Extract ALL campaign performance metrics from this post-campaign analysis (PCA) presentation.
+${fileContext}
+IMPORTANT: This is a PowerPoint PCA where metrics are spread across text boxes on slides (NOT in tables). You must carefully read label-value pairs like:
+  "TOTAL SPEND" (next text) "R200,000"
+  "Average CTR" (next text) "4.02%"
 
 Return ONLY valid JSON:
 {
   "rows": [
     {
-      "campaignName": "string",
-      "platform": "string or empty",
-      "channel": "string or empty",
-      "spend": number or 0,
-      "impressions": number or 0,
-      "clicks": number or 0,
-      "ctr": number or 0,
-      "cpm": number or 0,
-      "conversions": number or 0,
-      "revenue": number or 0,
-      "roas": number or 0,
-      "unitsSold": number or 0,
-      "flightStart": "YYYY-MM-DD or empty",
-      "flightEnd": "YYYY-MM-DD or empty"
+      "campaignName": "string — campaign name from title slide or context",
+      "platform": "string — the ad platform (Checkers, Woolworths, Pick n Pay, Meta, Google, TikTok, DStv, YouTube, OneCart, Mr D, Takealot). Infer from context: 'Onsite' = retailer media, 'CPM' without platform = retail media",
+      "channel": "string — Onsite, Social, Search, Display, Video, Programmatic, or empty",
+      "spend": "number — total media spend for this period in ZAR (strip R prefix and commas)",
+      "impressions": "number — total impressions served",
+      "clicks": "number — total clicks. If not explicitly stated, CALCULATE: clicks = impressions × (CTR / 100)",
+      "ctr": "number — click-through rate as percentage (e.g. 4.02 not 0.0402)",
+      "cpm": "number — cost per mille in ZAR",
+      "conversions": "number — purchases or conversion events, or 0",
+      "revenue": "number — attributed sales/revenue in ZAR. This is the TOTAL SALES figure, not just ad platform revenue",
+      "roas": "number — return on ad spend as multiplier (e.g. 2.52)",
+      "totalUnitsAttributed": "number — total units sold attributed to the campaign",
+      "totalSalesAttributed": "number — same as revenue, total sales value attributed",
+      "flightStart": "YYYY-MM-DD — campaign start date",
+      "flightEnd": "YYYY-MM-DD — campaign end date (last day of the period)"
     }
   ]
 }
 
-Rules:
-- Each campaign/platform/time period = separate row
-- "R200,000" → 200000 (strip R prefix, remove commas)
-- "4.02%" → 4.02 (strip %)
-- "2.52x" → 2.52 (strip x)
-- Detect platforms: Meta, Google, TikTok, DStv, Checkers, OneCart, Mr D, YouTube
-- Extract dates from "October 2025", "Nov-Dec 2025" etc.
-- Prefer per-period breakdowns over totals when both exist
+EXTRACTION RULES:
+1. Create ONE ROW per time period (e.g. one for October, one for November). Prefer monthly breakdowns over totals when both exist.
+2. ZAR values: "R200,000" → 200000, "R503,122.07" → 503122.07 (strip R, remove commas)
+3. Percentages: "4.02%" → 4.02 (strip %)
+4. Multipliers: "2.52x" → 2.52 (strip x)
+5. Dates: "October 2025" → flightStart: "2025-10-01", flightEnd: "2025-10-31"
+6. CALCULATE missing fields: If CTR and impressions exist but clicks are missing, compute clicks = impressions × CTR / 100
+7. If impressions are only available as a total (not split per month), divide proportionally by spend ratio or units ratio
+8. Platform inference: "Onsite CPM", "retail media" → the retailer name is the platform (Checkers, Woolworths, etc.)
+9. Include ALL numeric metrics you can find — do not leave fields as 0 if data exists in the text
+10. If the same metric appears multiple times (e.g. revenue on overview slide AND conclusion slide), use the most specific/detailed value
 
 PRESENTATION TEXT:
-${(slideTexts ?? "").substring(0, 8000)}`;
+${(slideTexts ?? "").substring(0, 12000)}`;
 
     // Primary: Gemini Pro (best extraction quality)
     let res = await fetch("https://openrouter.ai/api/v1/chat/completions", {

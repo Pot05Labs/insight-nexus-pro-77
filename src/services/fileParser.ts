@@ -205,7 +205,21 @@ export async function parsePPTX(file: File): Promise<ParsedPPTX> {
     const textBlocks: string[] = [];
     let title = "";
 
-    // Split by shape boundaries
+    // Helper: extract all <a:t> text from an XML chunk
+    const extractTextFromChunk = (chunk: string): string[] => {
+      const parts: string[] = [];
+      const tChunks = chunk.split("<a:t>");
+      for (let j = 1; j < tChunks.length; j++) {
+        const tEnd = tChunks[j].indexOf("</a:t>");
+        if (tEnd !== -1) {
+          const text = tChunks[j].substring(0, tEnd).trim();
+          if (text) parts.push(text);
+        }
+      }
+      return parts;
+    };
+
+    // Extract from standard shapes (<p:sp>), which include auto shapes and text boxes
     const shapeChunks = xml.split("<p:sp>");
     for (let i = 1; i < shapeChunks.length; i++) {
       const endIdx = shapeChunks[i].indexOf("</p:sp>");
@@ -214,21 +228,35 @@ export async function parsePPTX(file: File): Promise<ParsedPPTX> {
       // Check if this is a title shape
       const isTitle = shapeXml.includes('type="title"') || shapeXml.includes('type="ctrTitle"');
 
-      // Extract text from <a:t> tags using split
-      const textParts: string[] = [];
-      const tChunks = shapeXml.split("<a:t>");
-      for (let j = 1; j < tChunks.length; j++) {
-        const tEnd = tChunks[j].indexOf("</a:t>");
-        if (tEnd !== -1) {
-          const text = tChunks[j].substring(0, tEnd).trim();
-          if (text) textParts.push(text);
-        }
-      }
-
+      const textParts = extractTextFromChunk(shapeXml);
       const shapeText = textParts.join(" ").trim();
       if (shapeText) {
         textBlocks.push(shapeText);
         if (isTitle && !title) title = shapeText;
+      }
+    }
+
+    // Also extract from group shapes (<p:grpSp>) which may contain nested text
+    const grpChunks = xml.split("<p:grpSp>");
+    for (let i = 1; i < grpChunks.length; i++) {
+      const endIdx = grpChunks[i].indexOf("</p:grpSp>");
+      const grpXml = endIdx !== -1 ? grpChunks[i].substring(0, endIdx) : grpChunks[i];
+      const textParts = extractTextFromChunk(grpXml);
+      const grpText = textParts.join(" ").trim();
+      if (grpText && !textBlocks.includes(grpText)) {
+        textBlocks.push(grpText);
+      }
+    }
+
+    // Also extract from graphic frames (<p:graphicFrame>) which may contain tables
+    const gfChunks = xml.split("<p:graphicFrame>");
+    for (let i = 1; i < gfChunks.length; i++) {
+      const endIdx = gfChunks[i].indexOf("</p:graphicFrame>");
+      const gfXml = endIdx !== -1 ? gfChunks[i].substring(0, endIdx) : gfChunks[i];
+      const textParts = extractTextFromChunk(gfXml);
+      const gfText = textParts.join(" ").trim();
+      if (gfText && !textBlocks.includes(gfText)) {
+        textBlocks.push(gfText);
       }
     }
 

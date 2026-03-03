@@ -41,10 +41,11 @@ export type ProgressCallback = (p: { percent: number; stage: string }) => void;
 
 async function extractCampaignFromPPTX(
   pptx: ParsedPPTX,
+  fileName?: string,
 ): Promise<{ mapping: ColumnMapping; rows: Record<string, string>[] } | null> {
   try {
     const { data, error } = await supabase.functions.invoke("ai-extract-campaign", {
-      body: { slideTexts: pptx.fullText },
+      body: { slideTexts: pptx.fullText, fileName: fileName ?? "" },
     });
 
     if (error || !data) return null;
@@ -68,14 +69,17 @@ async function extractCampaignFromPPTX(
       "clicks", "ctr", "cpm", "conversions", "revenue", "roas",
       "total_sales_attributed", "total_units_attributed", "flight_start", "flight_end"];
 
-    // Map LLM's camelCase to our snake_case
+    // Map LLM's camelCase to our snake_case canonical fields
     const camelToSnake: Record<string, string> = {
       campaignName: "campaign_name", platform: "platform", channel: "channel",
       spend: "spend", impressions: "impressions", clicks: "clicks",
       ctr: "ctr", cpm: "cpm", conversions: "conversions", revenue: "revenue",
-      roas: "roas", unitsSold: "units_sold", flightStart: "flight_start",
-      flightEnd: "flight_end", totalSalesAttributed: "total_sales_attributed",
+      roas: "roas", flightStart: "flight_start", flightEnd: "flight_end",
+      totalSalesAttributed: "total_sales_attributed",
       totalUnitsAttributed: "total_units_attributed",
+      // Legacy aliases the LLM might still use
+      unitsSold: "total_units_attributed",
+      flight_start: "flight_start", flight_end: "flight_end",
     };
 
     for (const h of headers) {
@@ -188,7 +192,12 @@ export async function orchestrateUpload(
 
     onProgress({ percent: 30, stage: `Extracted text from ${pptx.slideCount} slides. AI extracting campaign data...` });
 
-    const llmResult = await extractCampaignFromPPTX(pptx);
+    const llmResult = await extractCampaignFromPPTX(pptx, file.name);
+
+    console.log(`[orchestrator] PPTX extraction result:`, llmResult ? `${llmResult.rows.length} rows, fields: ${Object.keys(llmResult.mapping.fieldMap).join(", ")}` : "null");
+    if (llmResult?.rows?.[0]) {
+      console.log(`[orchestrator] PPTX sample row:`, JSON.stringify(llmResult.rows[0]));
+    }
 
     if (!llmResult || llmResult.rows.length === 0) {
       await supabase.from("data_uploads").update({

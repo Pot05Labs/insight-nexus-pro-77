@@ -6,16 +6,41 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { RefreshCw, FileDown, MessageSquare, Brain, Inbox, Upload, Send, Bot, User, Loader2, Sparkles } from "lucide-react";
+import { RefreshCw, MessageSquare, Brain, Upload, Send, Bot, User, Loader2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { streamAiChat, type Msg } from "@/services/aiChatStream";
+import { computeMetrics, type SellOutMetrics, type CampaignMetrics } from "@/services/metricsEngine";
+import ExportPdfButton from "@/components/ExportPdfButton";
+import { fmtZAR } from "@/hooks/useSellOutData";
 
 type ReportContent = {
   executive_summary?: string;
   insights?: { title: string; insight: string; data_point: string; implication: string }[];
   recommendations?: { title: string; description: string }[];
 };
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Sort a Record<string, number> by value desc, return top N as formatted lines */
+function topBreakdown(map: Record<string, number>, n: number): string {
+  return Object.entries(map)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k, v]) => `  - ${k}: ${fmtZAR(v)}`)
+    .join("\n");
+}
+
+/** Sort a Record<string, number> by value desc, return top N as formatted lines (raw numbers) */
+function topBreakdownRaw(map: Record<string, number>, n: number): string {
+  return Object.entries(map)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k, v]) => `  - ${k}: ${v.toLocaleString()}`)
+    .join("\n");
+}
 
 const InsightsPage = () => {
   const [loading, setLoading] = useState(true);
@@ -28,11 +53,18 @@ const InsightsPage = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // PDF export ref — wraps the report content section
+  const reportRef = useRef<HTMLDivElement>(null);
+
   const fetchReport = async () => {
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
     const { data } = await supabase
       .from("narrative_reports")
       .select("*")
+      .eq("user_id", user.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1);
@@ -45,12 +77,123 @@ const InsightsPage = () => {
     setLoading(false);
   };
 
+  /** Get the user's current project ID */
+  const getProjectId = async (): Promise<{ userId: string; projectId: string } | null> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const projectId = projects?.[0]?.id;
+    if (!projectId) return null;
+
+    return { userId: user.id, projectId };
+  };
+
+  /**
+   * Build a rich data context string from the FULL dataset using metricsEngine.
+   * This replaces the old broken approach that used invalid Supabase aggregate
+   * syntax and fell back to computing totals from only 200 sample rows.
+   */
+  const buildDataContext = async (): Promise<string> => {
+    const ids = await getProjectId();
+    if (!ids) return "";
+
+    const { sellOut, campaign } = await computeMetrics(ids.projectId);
+
+    const parts: string[] = [];
+
+    if (sellOut) {
+      const ts = sellOut.revenueTimeSeries;
+      const dateRange = ts.length > 0 ? `${ts[0].date} to ${ts[ts.length - 1].date}` : "N/A";
+      const totalRows = ts.reduce((s, t) => s + t.units, 0); // approximate row count from time series
+
+      parts.push(
+        `SELL-OUT DATA (FULL DATASET — ${totalRows.toLocaleString()} total units across all rows):\n` +
+        `Total Revenue: ${fmtZAR(sellOut.totalRevenue)} (ZAR)\n` +
+        `Total Units Sold: ${sellOut.totalUnitsSold.toLocaleString()}\n` +
+        `Total Units Supplied: ${sellOut.totalUnitsSupplied.toLocaleString()}\n` +
+        `Total Cost: ${fmtZAR(sellOut.totalCost)}\n` +
+        `Gross Margin: ${fmtZAR(sellOut.grossMargin)} (${sellOut.grossMarginPct.toFixed(1)}%)\n` +
+        `Date Range: ${dateRange}`
+      );
+
+      const retailerCount = Object.keys(sellOut.revenueByRetailer).length;
+      parts.push(
+        `Revenue by Retailer (${retailerCount} retailers):\n` +
+        topBreakdown(sellOut.revenueByRetailer, 10)
+      );
+
+      const productCount = Object.keys(sellOut.revenueByProduct).length;
+      parts.push(
+        `Revenue by Product (top 10 of ${productCount}):\n` +
+        topBreakdown(sellOut.revenueByProduct, 10)
+      );
+
+      parts.push(
+        `Revenue by Region/Province:\n` +
+        topBreakdown(sellOut.revenueByRegion, 15)
+      );
+
+      parts.push(
+        `Units by Category:\n` +
+        topBreakdownRaw(sellOut.unitsByCategory, 15)
+      );
+    }
+
+    if (campaign) {
+      parts.push(
+        `CAMPAIGN DATA (FULL DATASET):\n` +
+        `Total Spend: ${fmtZAR(campaign.totalSpend)}\n` +
+        `Total Impressions: ${campaign.totalImpressions.toLocaleString()}\n` +
+        `Total Clicks: ${campaign.totalClicks.toLocaleString()}\n` +
+        `Total Conversions: ${campaign.totalConversions.toLocaleString()}\n` +
+        `Total Campaign Revenue: ${fmtZAR(campaign.totalRevenue)}\n` +
+        `Average CTR: ${campaign.avgCTR.toFixed(2)}%\n` +
+        `Average CPM: ${fmtZAR(campaign.avgCPM)}\n` +
+        `Average CPC: ${fmtZAR(campaign.avgCPC)}\n` +
+        `ROAS: ${campaign.roas.toFixed(2)}x`
+      );
+
+      parts.push(
+        `Spend by Platform:\n` +
+        topBreakdown(campaign.spendByPlatform, 10)
+      );
+
+      parts.push(
+        `Spend by Campaign (top 10):\n` +
+        topBreakdown(campaign.spendByCampaign, 10)
+      );
+
+      parts.push(
+        `Impressions by Channel:\n` +
+        topBreakdownRaw(campaign.impressionsByChannel, 10)
+      );
+    }
+
+    if (!sellOut && !campaign) return "";
+
+    return `\n\n[DATA CONTEXT — FULL DATASET AGGREGATES]\n${parts.join("\n\n")}`;
+  };
+
   /** Generate a fresh AI report from live data */
   const generateReport = async () => {
     setGenerating(true);
     const dataContext = await buildDataContext();
 
+    if (!dataContext) {
+      setReport({ executive_summary: "No data available. Please upload sell-out or campaign data first.", insights: [], recommendations: [] });
+      setGenerating(false);
+      return;
+    }
+
     const prompt = `You are SignalStack by Pot Labs — a retail signal intelligence platform. Generate a strategic report that connects multi-retailer performance data with campaign data using the following South African FMCG data. ALL monetary values are in South African Rand (ZAR, use R prefix like R1,000).
+
+IMPORTANT: The data below represents the COMPLETE dataset (all rows aggregated), not a sample. Use these exact totals in your analysis.
 
 Apply these strategic frameworks throughout:
 - **System 1 (Jon Evans)**: Assess mental availability, distinctive brand assets, emotional resonance, broad reach vs targeting
@@ -77,12 +220,23 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
       messages: [{ role: "user", content: prompt }],
       context: "insights",
       onDelta: (t) => { full += t; },
-      onDone: () => {
+      onDone: async () => {
         try {
           // Extract JSON from response (handle markdown code blocks)
           const jsonStr = full.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
           const parsed = JSON.parse(jsonStr) as ReportContent;
           setReport(parsed);
+
+          // Persist the report to narrative_reports
+          const ids = await getProjectId();
+          if (ids) {
+            await supabase.from("narrative_reports").insert({
+              user_id: ids.userId,
+              project_id: ids.projectId,
+              content: parsed,
+              report_type: "strategic_insights",
+            });
+          }
         } catch {
           // Fallback: display as executive summary
           setReport({ executive_summary: full, insights: [], recommendations: [] });
@@ -96,89 +250,43 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
     });
   };
 
+  /** Share the current report via WhatsApp */
+  const shareToWhatsApp = () => {
+    if (!report) return;
+
+    let text = `*SignalStack Insights Report*\n\n`;
+
+    if (report.executive_summary) {
+      text += `*Executive Summary*\n${report.executive_summary}\n\n`;
+    }
+
+    if (report.insights?.length) {
+      text += `*Key Insights*\n`;
+      report.insights.forEach((ins, i) => {
+        text += `${i + 1}. *${ins.title}*: ${ins.insight}\n`;
+      });
+      text += `\n`;
+    }
+
+    if (report.recommendations?.length) {
+      text += `*Recommendations*\n`;
+      report.recommendations.forEach((rec, i) => {
+        text += `${i + 1}. *${rec.title}*: ${rec.description}\n`;
+      });
+    }
+
+    text += `\n_Generated by SignalStack — signalstack.africa_`;
+
+    // WhatsApp URL has a practical limit around 2000 chars
+    const truncated = text.length > 1800 ? text.slice(0, 1800) + "..." : text;
+    window.open(`https://wa.me/?text=${encodeURIComponent(truncated)}`, "_blank");
+  };
+
   useEffect(() => { fetchReport(); }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
-
-  const buildDataContext = async (): Promise<string> => {
-    // Get user's project for scoping
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data: projects } = await supabase
-      .from("projects")
-      .select("id")
-      .eq("user_id", user?.id ?? "")
-      .order("created_at", { ascending: false })
-      .limit(1);
-    const projectId = projects?.[0]?.id;
-
-    // Fetch aggregate totals over the FULL dataset (no row limit)
-    // Then fetch sample rows for AI context (limited for token budget)
-    let totalsQuery = supabase
-      .from("sell_out_data")
-      .select("revenue.sum(), units_sold.sum(), cost.sum(), date.min(), date.max()")
-      .is("deleted_at", null);
-    if (projectId) totalsQuery = totalsQuery.eq("project_id", projectId);
-
-    let sampleQuery = supabase
-      .from("sell_out_data")
-      .select("retailer, brand, product_name_raw, category, region, revenue, units_sold, cost, date")
-      .is("deleted_at", null)
-      .order("date", { ascending: false })
-      .limit(200);
-    if (projectId) sampleQuery = sampleQuery.eq("project_id", projectId);
-
-    let metricsQuery = supabase
-      .from("computed_metrics")
-      .select("metric_name, metric_value, dimensions")
-      .limit(30);
-    if (projectId) metricsQuery = metricsQuery.eq("project_id", projectId);
-
-    let campaignQuery = supabase
-      .from("campaign_data_v2")
-      .select("campaign_name, platform, channel, spend, impressions, clicks, conversions, revenue, flight_start, flight_end")
-      .is("deleted_at", null)
-      .order("flight_start", { ascending: false })
-      .limit(100);
-    if (projectId) campaignQuery = campaignQuery.eq("project_id", projectId);
-
-    const [totalsRes, salesRes, metricsRes, campaignRes] = await Promise.all([totalsQuery, sampleQuery, metricsQuery, campaignQuery]);
-
-    const parts: string[] = [];
-    if (salesRes.data?.length) {
-      // Use aggregated totals from the full dataset when available,
-      // otherwise fall back to computing from the sample
-      const aggRow = totalsRes.data?.[0] as Record<string, number> | undefined;
-      const totalRev = aggRow?.sum ?? salesRes.data.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
-      const totalUnits = salesRes.data.reduce((s, r) => s + (Number(r.units_sold) || 0), 0);
-      const totalCost = salesRes.data.reduce((s, r) => s + (Number(r.cost) || 0), 0);
-      const retailers = [...new Set(salesRes.data.map(r => r.retailer).filter(Boolean))];
-      const brands = [...new Set(salesRes.data.map(r => r.brand).filter(Boolean))];
-      const categories = [...new Set(salesRes.data.map(r => r.category).filter(Boolean))];
-      const regions = [...new Set(salesRes.data.map(r => r.region).filter(Boolean))];
-      const dates = salesRes.data.map(r => r.date).filter(Boolean).sort();
-      const dateRange = dates.length > 0 ? `${dates[0]} to ${dates[dates.length - 1]}` : "N/A";
-
-      parts.push(`SELL-OUT SUMMARY (sample of ${salesRes.data.length} most recent rows):\nTotal Revenue: R${totalRev.toLocaleString()} (ZAR) | Total Units: ${totalUnits.toLocaleString()} | Total Cost: R${totalCost.toLocaleString()}\nDate Range: ${dateRange}\nRetailers: ${retailers.join(", ") || "N/A"}\nBrands: ${brands.join(", ") || "N/A"}\nCategories: ${categories.join(", ") || "N/A"}\nRegions: ${regions.join(", ") || "N/A"}`);
-
-      // Include sample rows for richer context
-      const sampleRows = salesRes.data.slice(0, 5);
-      parts.push(`Sample rows:\n${sampleRows.map(r => `${r.date} | ${r.retailer ?? "?"} | ${r.brand ?? "?"} | ${r.product_name_raw ?? "?"} | R${Number(r.revenue ?? 0).toLocaleString()} | ${r.units_sold ?? 0} units`).join("\n")}`);
-    }
-    if (campaignRes.data?.length) {
-      const totalSpend = campaignRes.data.reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const totalImpressions = campaignRes.data.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
-      const totalClicks = campaignRes.data.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
-      const platforms = [...new Set(campaignRes.data.map(r => r.platform).filter(Boolean))];
-      parts.push(`CAMPAIGN SUMMARY (${campaignRes.data.length} rows):\nTotal Spend: R${totalSpend.toLocaleString()} | Impressions: ${totalImpressions.toLocaleString()} | Clicks: ${totalClicks.toLocaleString()}\nPlatforms: ${platforms.join(", ") || "N/A"}`);
-    }
-    if (metricsRes.data?.length) {
-      const metricsSummary = metricsRes.data.map(m => `${m.metric_name}: ${m.metric_value}`).join("; ");
-      parts.push(`COMPUTED METRICS: ${metricsSummary}`);
-    }
-    return parts.length ? `\n\n[DATA CONTEXT]\n${parts.join("\n\n")}` : "";
-  };
 
   const send = async (text: string) => {
     if (!text.trim() || chatLoading) return;
@@ -208,10 +316,10 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
         context: "insights",
         onDelta: upsert,
         onDone: () => setChatLoading(false),
-        onError: (msg) => { upsert(`⚠️ ${msg}`); setChatLoading(false); },
+        onError: (msg) => { upsert(`Unable to get response: ${msg}`); setChatLoading(false); },
       });
     } catch {
-      upsert("⚠️ Something went wrong. Please try again.");
+      upsert("Something went wrong. Please try again.");
       setChatLoading(false);
     }
   };
@@ -243,12 +351,14 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
             {generating ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             {generating ? "Generating..." : "Regenerate"}
           </Button>
-          <Button variant="outline" size="sm"><FileDown className="h-3.5 w-3.5 mr-1.5" />Export to PDF</Button>
-          <Button variant="outline" size="sm"><MessageSquare className="h-3.5 w-3.5 mr-1.5" />Send to WhatsApp</Button>
+          <ExportPdfButton targetRef={reportRef} filename="SignalStack-Insights" />
+          <Button variant="outline" size="sm" onClick={shareToWhatsApp} disabled={!report}>
+            <MessageSquare className="h-3.5 w-3.5 mr-1.5" />Send to WhatsApp
+          </Button>
         </div>
       </div>
 
-      {/* Report Section */}
+      {/* Report Section — wrapped in ref for PDF export */}
       {loading ? (
         <div className="space-y-4">
           <Skeleton className="h-32 w-full" />
@@ -279,9 +389,9 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
           </CardContent>
         </Card>
       ) : (
-        <>
+        <div ref={reportRef}>
           {summary && (
-            <Card className="border-primary/20 bg-primary/3">
+            <Card className="border-primary/20 bg-primary/3 mb-4">
               <CardHeader>
                 <CardTitle className="font-display text-base flex items-center gap-2">
                   <Brain className="h-4 w-4 text-primary" />Executive Summary
@@ -293,7 +403,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
             </Card>
           )}
           {insights.length > 0 && (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
               {insights.map((card, i) => (
                 <motion.div key={card.title} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
                   <Card className="h-full flex flex-col">
@@ -316,7 +426,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
           )}
           {recommendations.length > 0 && (
             <>
-              <Separator />
+              <Separator className="mb-4" />
               <div>
                 <h3 className="font-display text-lg font-bold mb-4">Forward-Looking Recommendations</h3>
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -341,7 +451,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
               </div>
             </>
           )}
-        </>
+        </div>
       )}
 
       {/* AI Chat Section */}
@@ -350,7 +460,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
         <h3 className="font-display text-lg font-bold mb-1 flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary" />Ask the Harmoniser
         </h3>
-        <p className="text-muted-foreground text-sm mb-4">Chat with your data — powered by GPT-4o with live sell-out and metrics context.</p>
+        <p className="text-muted-foreground text-sm mb-4">Chat with your data — powered by AI with live sell-out and campaign context.</p>
 
         <Card className="flex flex-col" style={{ height: "420px" }}>
           <ScrollArea className="flex-1 p-4" ref={scrollRef}>

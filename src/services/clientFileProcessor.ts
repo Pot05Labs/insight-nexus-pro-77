@@ -118,6 +118,17 @@ export function buildFileSchemaReport(
   headers: string[],
   rows: Record<string, unknown>[],
 ): SchemaReport {
+  // Special case: PPTX/PDF files return a ["Note"] stub header — show AI extraction message
+  if (headers.length === 1 && headers[0] === "Note") {
+    return {
+      dataType: "campaign",
+      mapped: [],
+      unmapped: [],
+      unmappedSource: [],
+      confidence: -1,  // -1 signals "AI extraction" — display layer handles this
+    };
+  }
+
   const types = detectDataTypes(headers);
   const isMixed = types.sell_out && types.campaign;
   const isCampaign = types.campaign && !types.sell_out;
@@ -236,6 +247,10 @@ export async function parseFile(file: File): Promise<ParsedFileResult> {
       return parseXLSXBuffer(buffer);
     }
     case "pptx":
+      return {
+        headers: ["Note"],
+        rows: [{ Note: "PPTX files are parsed by AI after upload. Campaign metrics (spend, impressions, CTR, etc.) will be automatically extracted from slides." }],
+      };
     case "pdf":
     case "json":
     case "xml":
