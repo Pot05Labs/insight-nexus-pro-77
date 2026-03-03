@@ -186,12 +186,16 @@ async function buildEntityMap(projectId: string): Promise<Record<string, unknown
   const retailerCategories: Record<string, Set<string>> = {};
 
   for (const r of rows) {
-    if (r.product_name_raw && r.brand) {
-      productBrands[r.product_name_raw] = r.brand;
+    const productName = r.product_name_raw as string | undefined;
+    const brand = r.brand as string | undefined;
+    const retailer = r.retailer as string | undefined;
+    const category = r.category as string | undefined;
+    if (productName && brand) {
+      productBrands[productName] = brand;
     }
-    if (r.retailer && r.category) {
-      if (!retailerCategories[r.retailer]) retailerCategories[r.retailer] = new Set();
-      retailerCategories[r.retailer].add(r.category);
+    if (retailer && category) {
+      if (!retailerCategories[retailer]) retailerCategories[retailer] = new Set();
+      retailerCategories[retailer].add(category);
     }
   }
 
