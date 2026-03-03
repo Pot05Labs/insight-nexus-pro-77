@@ -163,10 +163,12 @@ async function detectTrends(projectId: string, currentProfile: DataProfile): Pro
 
 async function buildEntityMap(projectId: string): Promise<Record<string, unknown> | null> {
   // Build product name → brand mapping (paginate — PostgREST max_rows is 1000)
+  // Cap at 5000 rows to prevent unbounded memory growth in the browser
+  const MAX_ENTITY_ROWS = 5000;
   let rows: Record<string, unknown>[] = [];
   let offset = 0;
   let hasMore = true;
-  while (hasMore) {
+  while (hasMore && rows.length < MAX_ENTITY_ROWS) {
     const { data: page } = await supabase
       .from("sell_out_data")
       .select("product_name_raw, brand, retailer, category")
@@ -178,6 +180,8 @@ async function buildEntityMap(projectId: string): Promise<Record<string, unknown
     offset += 1000;
     hasMore = batch.length === 1000;
   }
+  // Trim to cap if last batch pushed us over
+  if (rows.length > MAX_ENTITY_ROWS) rows = rows.slice(0, MAX_ENTITY_ROWS);
 
   if (!rows || rows.length === 0) return null;
 

@@ -175,8 +175,11 @@ function parseCSVText(text: string): ParsedFileResult {
   return { headers, rows };
 }
 
-function parseXLSXBuffer(buffer: ArrayBuffer): ParsedFileResult {
-  const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
+function parseXLSXBuffer(buffer: ArrayBuffer, maxRows?: number): ParsedFileResult {
+  // Use sheetRows to limit memory when only a preview is needed
+  const opts: XLSX.ParsingOptions = { type: "array", cellDates: true };
+  if (maxRows) opts.sheetRows = maxRows + 1; // +1 for header row
+  const workbook = XLSX.read(new Uint8Array(buffer), opts);
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
   const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
@@ -244,7 +247,8 @@ export async function parseFile(file: File): Promise<ParsedFileResult> {
     case "xlsx":
     case "xls": {
       const buffer = await file.arrayBuffer();
-      return parseXLSXBuffer(buffer);
+      // Only read first 20 rows for preview — full parse happens in uploadOrchestrator
+      return parseXLSXBuffer(buffer, 20);
     }
     case "pptx":
       return {
@@ -279,6 +283,7 @@ export async function generatePreview(file: File): Promise<{ columns: string[]; 
       return String(val);
     })
   );
-  const schemaReport = buildFileSchemaReport(headers, rows);
+  // Only pass first 20 rows to schema report — enough for column detection, avoids holding all data
+  const schemaReport = buildFileSchemaReport(headers, rows.slice(0, 20));
   return { columns: headers, preview: previewRows, schemaReport };
 }

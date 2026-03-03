@@ -131,17 +131,19 @@ const UploadPage = () => {
       return;
     }
 
-    // Generate previews + schema reports for ALL file types
-    newFiles.forEach((uf) => {
-      generatePreview(uf.file)
-        .then(({ columns, preview, schemaReport: sr }) => {
+    // Generate previews sequentially to avoid concurrent memory spikes from large files
+    const runPreviews = async () => {
+      for (const uf of newFiles) {
+        try {
+          const { columns, preview, schemaReport: sr } = await generatePreview(uf.file);
           setFiles((prev) => prev.map((f) => (f.id === uf.id ? { ...f, columns, preview, schemaReport: sr } : f)));
-        })
-        .catch((err) => {
+        } catch (err: any) {
           console.warn(`Preview generation failed for ${uf.file.name}:`, err.message);
           // Don't block upload — just skip preview
-        });
-    });
+        }
+      }
+    };
+    runPreviews(); // non-blocking but sequential internally
 
     setFiles((prev) => [...prev, ...newFiles]);
   }, [toast]);
@@ -209,10 +211,7 @@ const UploadPage = () => {
         queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
         queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
 
-        // Trigger learning pipeline
-        const { data: projects } = await supabase.from("projects").select("id").eq("user_id", userId).order("created_at", { ascending: false }).limit(1);
-        const pId = projects?.[0]?.id;
-        if (pId) runLearningPipeline(pId, userId).catch(() => {});
+        // Learning pipeline runs once after all uploads complete (in uploadAll)
       }
 
       if (upload.status === "error") {
@@ -342,8 +341,42 @@ const UploadPage = () => {
 
   const uploadAll = async () => {
     const pending = files.filter((f) => f.status === "pending");
-    for (const f of pending) await uploadFile(f);
-    toast({ title: "Processing complete", description: `${pending.length} file(s) uploaded.` });
+    let failCount = 0;
+
+    for (const f of pending) {
+      try {
+        await uploadFile(f);
+      } catch (err) {
+        failCount++;
+        console.error(`[uploadAll] Failed to upload ${f.file.name}:`, err);
+        updateFile(f.id, { status: "error", error: String(err) });
+      }
+    }
+
+    // Run learning pipeline ONCE after all files are done (not per-file)
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: projects } = await supabase
+          .from("projects").select("id")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false }).limit(1);
+        const pId = projects?.[0]?.id;
+        if (pId) await runLearningPipeline(pId, session.user.id);
+      }
+    } catch (err) {
+      console.warn("[uploadAll] Learning pipeline failed:", err);
+    }
+
+    const successCount = pending.length - failCount;
+    const desc = failCount > 0
+      ? `${successCount} file(s) uploaded successfully, ${failCount} failed.`
+      : `${pending.length} file(s) uploaded.`;
+    toast({
+      title: failCount > 0 ? "Upload completed with errors" : "Processing complete",
+      description: desc,
+      variant: failCount > 0 ? "destructive" : undefined,
+    });
   };
 
   const handleDelete = async () => {

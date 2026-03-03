@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseFile, type ParseResult, type ParsedFile, type ParsedPPTX } from "./fileParser";
 import { mapColumns, type ColumnMapping, type DataType } from "./columnMapper";
 import { toSellOutRecord, toCampaignRecord } from "./valueTransformer";
-import { runLearningPipeline } from "./learningPipeline";
+// Learning pipeline is now called once after all uploads complete (in UploadPage.tsx)
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -336,8 +336,7 @@ export async function orchestrateUpload(
   // ══════════════════════════════════════════════════
   onProgress({ percent: 95, stage: "Finalizing..." });
 
-  // Trigger learning pipeline (non-blocking)
-  runLearningPipeline(projectId, userId).catch(() => {});
+  // Learning pipeline is triggered once after all uploads complete (UploadPage.tsx uploadAll)
 
   console.log(`[orchestrator] Upload complete:`, JSON.stringify(audit));
 
