@@ -90,19 +90,11 @@ Currently ALL file parsing happens client-side in `src/services/clientFileProces
 
 ## AI Model Routing (OpenRouter)
 
-Route different tasks to different models for cost optimisation:
+All tasks use `openrouter/auto` which lets OpenRouter pick the best available model per request. Fallback is `google/gemini-2.5-flash` if auto-routing fails. **Do NOT use DeepSeek models** — they are too slow and burn credits without returning results.
 
-| Task | Primary Model | Fallback | Est. Cost/Call |
-|------|--------------|----------|----------------|
-| Strategic Insights | `deepseek/deepseek-v3.2` | `anthropic/claude-sonnet-4.6` | ~$0.02 |
-| NL → Query Translation | `openai/gpt-5-nano` | `deepseek/deepseek-v3` | ~$0.001 |
-| Document Extraction (PPTX/PDF) | `google/gemini-2.5-pro` | `bytedance/seed-1.6` | ~$0.05 |
-| Anomaly Explanation | `deepseek/deepseek-v3` | `google/gemini-2.5-flash` | ~$0.005 |
-| Schema Detection | `openai/gpt-5-nano` | `deepseek/deepseek-v3` | ~$0.001 |
-| Executive Reports | `anthropic/claude-sonnet-4.6` | `deepseek/deepseek-v3.2` | ~$0.10 |
-| Office Doc Extraction | `minimax/minimax-m2.5` | `google/gemini-2.5-pro` | ~$0.02 |
-
-Use DeepSeek/Nano for ~80% of calls (cheap) and premium models for ~20% (quality-critical).
+| Task | Primary Model | Fallback |
+|------|--------------|----------|
+| All tasks | `openrouter/auto` | `google/gemini-2.5-flash` |
 
 ---
 

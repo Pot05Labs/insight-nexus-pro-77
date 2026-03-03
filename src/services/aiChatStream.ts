@@ -24,9 +24,9 @@ export async function streamAiChat({
     return;
   }
 
-  // Add a timeout controller (60s for AI responses)
+  // Add a timeout controller (120s — auto-routing may queue briefly)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
   try {
     const resp = await fetch(CHAT_URL, {
@@ -62,6 +62,7 @@ export async function streamAiChat({
     const decoder = new TextDecoder();
     let buf = "";
     let done = false;
+    let receivedContent = false;
 
     while (!done) {
       const { done: rd, value } = await reader.read();
@@ -78,14 +79,29 @@ export async function streamAiChat({
         if (json === "[DONE]") { done = true; break; }
         try {
           const parsed = JSON.parse(json);
+          // Detect error objects sent within the SSE stream
+          if (parsed.error) {
+            const errMsg = typeof parsed.error === "string"
+              ? parsed.error
+              : parsed.error.message ?? JSON.stringify(parsed.error);
+            console.error("[aiChatStream] Error in SSE stream:", errMsg);
+            onError(errMsg);
+            return;
+          }
           const c = parsed.choices?.[0]?.delta?.content;
-          if (c) onDelta(c);
+          if (c) { onDelta(c); receivedContent = true; }
         } catch {
           buf = line + "\n" + buf;
           break;
         }
       }
     }
+
+    if (!receivedContent) {
+      onError("AI returned an empty response. Please try again.");
+      return;
+    }
+
     onDone();
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {

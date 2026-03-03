@@ -31,15 +31,17 @@ function corsHeaders(req: Request) {
 }
 
 // --- Model Routing ---
+// Use OpenRouter auto-routing to pick the best available model per request.
+// Fallback to Gemini Flash if auto-routing itself fails.
 const MODEL_ROUTES: Record<string, { primary: string; fallback: string }> = {
-  insights:     { primary: "deepseek/deepseek-v3.2",      fallback: "google/gemini-2.5-flash" },
-  query:        { primary: "google/gemini-2.5-flash",      fallback: "deepseek/deepseek-v3" },
-  extraction:   { primary: "google/gemini-2.5-pro",        fallback: "google/gemini-2.5-flash" },
-  anomaly:      { primary: "deepseek/deepseek-v3",         fallback: "google/gemini-2.5-flash" },
-  segmentation: { primary: "deepseek/deepseek-v3.2",       fallback: "google/gemini-2.5-flash" },
-  schema:       { primary: "google/gemini-2.5-flash",      fallback: "deepseek/deepseek-v3" },
-  report:       { primary: "deepseek/deepseek-v3.2",       fallback: "google/gemini-2.5-flash" },
-  learning:     { primary: "deepseek/deepseek-v3.2",       fallback: "google/gemini-2.5-flash" },
+  insights:     { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  query:        { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  extraction:   { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  anomaly:      { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  segmentation: { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  schema:       { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  report:       { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
+  learning:     { primary: "openrouter/auto", fallback: "google/gemini-2.5-flash" },
 };
 
 // --- Rate Limiting (in-memory, per-instance) ---
