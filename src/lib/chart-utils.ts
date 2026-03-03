@@ -22,12 +22,12 @@ export const chartCursorStyle = {
 
 /* ─── Accessible chart palette (8 colors, dark-mode safe, colorblind friendly) ─── */
 export const CHART_COLORS = [
-  "hsl(var(--primary))",       // teal
+  "hsl(var(--primary))",       // charcoal
   "hsl(var(--chart-2))",       // amber
   "hsl(var(--chart-3))",       // purple
   "hsl(var(--chart-4))",       // rose
   "hsl(var(--chart-5))",       // blue
-  "hsl(175 55% 50%)",          // light teal
+  "hsl(224 15% 45%)",          // slate
   "hsl(25 85% 55%)",           // orange
   "hsl(280 45% 55%)",          // violet
 ] as const;

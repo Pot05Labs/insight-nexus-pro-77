@@ -81,7 +81,7 @@ const RetailersPage = () => {
   }, [tableData]);
 
   const radarRetailers = tableData.slice(0, 6).map((r) => r.retailer);
-  const radarColors = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(175 65% 45%)"];
+  const radarColors = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(224 15% 45%)"];
 
   const hasData = data.length > 0;
   const dataSummary = `Retailers: ${chartData.slice(0, 5).map((r) => `${r.retailer} (${fmtZAR(r.revenue)})`).join(", ")}. Total retailers: ${chartData.length}. Benchmarking index: ${tableData.slice(0, 3).map((r) => `${r.retailer} index ${r.index}`).join(", ")}.`;
