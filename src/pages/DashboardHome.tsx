@@ -124,10 +124,10 @@ const DashboardHome = () => {
     return firstWord && firstWord.length > 1 ? firstWord : "Unknown";
   };
   const revByBrand = aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0));
-  const brandData = Object.entries(revByBrand)
+  const brandDataRaw = Object.entries(revByBrand)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 6)
     .map(([brand, revenue]) => ({ brand, revenue: Math.round(revenue) }));
+  const brandData = topNWithOther(brandDataRaw, 6, "revenue", "brand");
 
   // Category analysis
   const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));

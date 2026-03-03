@@ -113,13 +113,21 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
       .limit(1);
     const projectId = projects?.[0]?.id;
 
-    let salesQuery = supabase
+    // Fetch aggregate totals over the FULL dataset (no row limit)
+    // Then fetch sample rows for AI context (limited for token budget)
+    let totalsQuery = supabase
+      .from("sell_out_data")
+      .select("revenue.sum(), units_sold.sum(), cost.sum(), date.min(), date.max()")
+      .is("deleted_at", null);
+    if (projectId) totalsQuery = totalsQuery.eq("project_id", projectId);
+
+    let sampleQuery = supabase
       .from("sell_out_data")
       .select("retailer, brand, product_name_raw, category, region, revenue, units_sold, cost, date")
       .is("deleted_at", null)
       .order("date", { ascending: false })
       .limit(200);
-    if (projectId) salesQuery = salesQuery.eq("project_id", projectId);
+    if (projectId) sampleQuery = sampleQuery.eq("project_id", projectId);
 
     let metricsQuery = supabase
       .from("computed_metrics")
@@ -135,11 +143,14 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
       .limit(100);
     if (projectId) campaignQuery = campaignQuery.eq("project_id", projectId);
 
-    const [salesRes, metricsRes, campaignRes] = await Promise.all([salesQuery, metricsQuery, campaignQuery]);
+    const [totalsRes, salesRes, metricsRes, campaignRes] = await Promise.all([totalsQuery, sampleQuery, metricsQuery, campaignQuery]);
 
     const parts: string[] = [];
     if (salesRes.data?.length) {
-      const totalRev = salesRes.data.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+      // Use aggregated totals from the full dataset when available,
+      // otherwise fall back to computing from the sample
+      const aggRow = totalsRes.data?.[0] as Record<string, number> | undefined;
+      const totalRev = aggRow?.sum ?? salesRes.data.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
       const totalUnits = salesRes.data.reduce((s, r) => s + (Number(r.units_sold) || 0), 0);
       const totalCost = salesRes.data.reduce((s, r) => s + (Number(r.cost) || 0), 0);
       const retailers = [...new Set(salesRes.data.map(r => r.retailer).filter(Boolean))];
@@ -149,7 +160,7 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
       const dates = salesRes.data.map(r => r.date).filter(Boolean).sort();
       const dateRange = dates.length > 0 ? `${dates[0]} to ${dates[dates.length - 1]}` : "N/A";
 
-      parts.push(`SELL-OUT SUMMARY (${salesRes.data.length} rows):\nTotal Revenue: R${totalRev.toLocaleString()} (ZAR) | Total Units: ${totalUnits.toLocaleString()} | Total Cost: R${totalCost.toLocaleString()}\nDate Range: ${dateRange}\nRetailers: ${retailers.join(", ") || "N/A"}\nBrands: ${brands.join(", ") || "N/A"}\nCategories: ${categories.join(", ") || "N/A"}\nRegions: ${regions.join(", ") || "N/A"}`);
+      parts.push(`SELL-OUT SUMMARY (sample of ${salesRes.data.length} most recent rows):\nTotal Revenue: R${totalRev.toLocaleString()} (ZAR) | Total Units: ${totalUnits.toLocaleString()} | Total Cost: R${totalCost.toLocaleString()}\nDate Range: ${dateRange}\nRetailers: ${retailers.join(", ") || "N/A"}\nBrands: ${brands.join(", ") || "N/A"}\nCategories: ${categories.join(", ") || "N/A"}\nRegions: ${regions.join(", ") || "N/A"}`);
 
       // Include sample rows for richer context
       const sampleRows = salesRes.data.slice(0, 5);

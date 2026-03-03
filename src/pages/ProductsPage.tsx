@@ -26,7 +26,7 @@ const ProductsPage = () => {
 
   // Top 10 products by revenue
   const revByProduct = aggregate(data, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const top10 = Object.entries(revByProduct).sort(([, a], [, b]) => b - a).slice(0, 8)
+  const top10 = Object.entries(revByProduct).sort(([, a], [, b]) => b - a).slice(0, 10)
     .map(([name, revenue]) => ({ name, revenue: Math.round(revenue) }));
 
   // Category donut

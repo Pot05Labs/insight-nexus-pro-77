@@ -61,15 +61,33 @@ function aggregate(
 /* ------------------------------------------------------------------ */
 
 async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics | null> {
-  const { data, error } = await supabase
-    .from("sell_out_data")
-    .select("date, retailer, product_name_raw, region, category, revenue, units_sold, units_supplied, cost")
-    .eq("project_id", projectId)
-    .is("deleted_at", null)
-    .order("date", { ascending: true })
-    .limit(100000);
+  // Paginate to fetch ALL sell-out rows (no hard limit)
+  const PAGE_SIZE = 10000;
+  let data: Record<string, unknown>[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  if (error || !data || data.length === 0) return null;
+  while (hasMore) {
+    const { data: page, error } = await supabase
+      .from("sell_out_data")
+      .select("date, retailer, product_name_raw, region, category, revenue, units_sold, units_supplied, cost")
+      .eq("project_id", projectId)
+      .is("deleted_at", null)
+      .order("date", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error("[metricsEngine] sell_out fetch error at offset", offset, error.message);
+      break;
+    }
+    const rows = (page ?? []) as Record<string, unknown>[];
+    data = data.concat(rows);
+    offset += PAGE_SIZE;
+    hasMore = rows.length === PAGE_SIZE;
+  }
+
+  if (data.length === 0) return null;
+  console.log(`[metricsEngine] Fetched ${data.length} sell-out rows for metrics`);
 
   const totalRevenue = data.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
   const totalUnitsSold = data.reduce((s, r) => s + Number(r.units_sold ?? 0), 0);
@@ -117,14 +135,33 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
 /* ------------------------------------------------------------------ */
 
 async function computeCampaignMetrics(projectId: string): Promise<CampaignMetrics | null> {
-  const { data, error } = await supabase
-    .from("campaign_data_v2")
-    .select("platform, channel, campaign_name, spend, impressions, clicks, ctr, conversions, revenue")
-    .eq("project_id", projectId)
-    .is("deleted_at", null)
-    .limit(50000);
+  // Paginate to fetch ALL campaign rows (no hard limit)
+  const PAGE_SIZE = 10000;
+  let data: Record<string, unknown>[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  if (error || !data || data.length === 0) return null;
+  while (hasMore) {
+    const { data: page, error } = await supabase
+      .from("campaign_data_v2")
+      .select("platform, channel, campaign_name, spend, impressions, clicks, ctr, conversions, revenue")
+      .eq("project_id", projectId)
+      .is("deleted_at", null)
+      .order("campaign_name", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error("[metricsEngine] campaign fetch error at offset", offset, error.message);
+      break;
+    }
+    const rows = (page ?? []) as Record<string, unknown>[];
+    data = data.concat(rows);
+    offset += PAGE_SIZE;
+    hasMore = rows.length === PAGE_SIZE;
+  }
+
+  if (data.length === 0) return null;
+  console.log(`[metricsEngine] Fetched ${data.length} campaign rows for metrics`);
 
   const totalSpend = data.reduce((s, r) => s + Number(r.spend ?? 0), 0);
   const totalImpressions = data.reduce((s, r) => s + Number(r.impressions ?? 0), 0);

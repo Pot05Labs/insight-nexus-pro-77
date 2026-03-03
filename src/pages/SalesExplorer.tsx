@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -6,52 +6,28 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { supabase } from "@/integrations/supabase/client";
 import { ShoppingCart, TrendingUp, DollarSign, Package, Upload, Inbox } from "lucide-react";
-import { fmtZAR } from "@/hooks/useSellOutData";
+import { useSellOutData, fmtZAR } from "@/hooks/useSellOutData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { Link } from "react-router-dom";
 
-type Sale = { date: string; sku: string; product_name: string; channel: string; revenue: number; units_sold: number; returns: number; cost: number };
-
 const SalesExplorer = () => {
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: rawData, loading } = useSellOutData();
   const [channelFilter, setChannelFilter] = useState("all");
   const [skuFilter, setSkuFilter] = useState("all");
 
-  useEffect(() => {
-    const fetchSales = async () => {
-      setLoading(true);
-      // Get the user's project
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("id")
-        .eq("user_id", user?.id ?? "")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      const projectId = projects?.[0]?.id;
-
-      let query = supabase
-        .from("sell_out_data")
-        .select("date, sku, product_name_raw, retailer, revenue, units_sold, cost")
-        .is("deleted_at", null)
-        .order("date", { ascending: false })
-        .limit(500);
-
-      if (projectId) query = query.eq("project_id", projectId);
-
-      const { data } = await query;
-      setSales((data ?? []).map((d) => ({
-        date: d.date, sku: d.sku ?? "", product_name: d.product_name_raw ?? "", channel: d.retailer ?? "",
-        revenue: Number(d.revenue) || 0, units_sold: d.units_sold ?? 0, returns: 0, cost: Number(d.cost) || 0,
-      })));
-      setLoading(false);
-    };
-    fetchSales();
-  }, []);
+  // Map sell-out rows to the shape this page expects
+  const sales = rawData.map((d) => ({
+    date: d.date ?? "",
+    sku: d.sku ?? "",
+    product_name: d.product_name_raw ?? "",
+    channel: d.retailer ?? "",
+    revenue: Number(d.revenue) || 0,
+    units_sold: d.units_sold ?? 0,
+    returns: 0,
+    cost: Number(d.cost) || 0,
+  }));
 
   const channels = [...new Set(sales.map((s) => s.channel))];
   const skus = [...new Set(sales.map((s) => s.sku))];
@@ -154,9 +130,14 @@ const SalesExplorer = () => {
           )}
 
           <Card>
-            <CardHeader><CardTitle className="font-display text-base">Sales Details</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="font-display text-base">
+                Sales Details
+                <span className="ml-2 text-xs font-normal text-muted-foreground">({filtered.length.toLocaleString()} rows)</span>
+              </CardTitle>
+            </CardHeader>
             <CardContent>
-              <div className="rounded-lg border overflow-auto">
+              <div className="rounded-lg border overflow-auto max-h-[500px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -165,7 +146,7 @@ const SalesExplorer = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map((s, i) => (
+                    {filtered.slice(0, 500).map((s, i) => (
                       <TableRow key={i}>
                         <TableCell className="whitespace-nowrap">{s.date}</TableCell>
                         <TableCell><Badge variant="outline">{s.sku}</Badge></TableCell>
@@ -179,6 +160,11 @@ const SalesExplorer = () => {
                   </TableBody>
                 </Table>
               </div>
+              {filtered.length > 500 && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  Showing 500 of {filtered.length.toLocaleString()} rows. KPIs reflect all data.
+                </p>
+              )}
             </CardContent>
           </Card>
         </>
