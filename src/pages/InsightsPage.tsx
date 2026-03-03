@@ -279,7 +279,16 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
 
     // WhatsApp URL has a practical limit around 2000 chars
     const truncated = text.length > 1800 ? text.slice(0, 1800) + "..." : text;
-    window.open(`https://wa.me/?text=${encodeURIComponent(truncated)}`, "_blank");
+
+    // Use anchor click instead of window.open() — Safari blocks window.open
+    // to wa.me/api.whatsapp.com due to Cross-Origin-Opener-Policy
+    const a = document.createElement("a");
+    a.href = `https://wa.me/?text=${encodeURIComponent(truncated)}`;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   useEffect(() => { fetchReport(); }, []);
