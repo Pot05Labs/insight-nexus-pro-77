@@ -7,6 +7,25 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const DEFAULT_APP_URL = Deno.env.get("SITE_URL") ?? Deno.env.get("APP_URL") ?? "https://signalstack.africa";
+const ALLOWED_ORIGINS = [
+  "https://signalstack.africa",
+  "https://www.signalstack.africa",
+];
+
+function resolveAppUrl(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  if (
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.includes(".lovable.app") ||
+    origin.includes(".lovableproject.com") ||
+    origin.startsWith("http://localhost")
+  ) {
+    return origin;
+  }
+  return DEFAULT_APP_URL;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -18,12 +37,12 @@ serve(async (req) => {
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
       { auth: { persistSession: false } }
     );
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("No authorization header");
+    const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) throw new Error("Authorization header missing");
 
     const token = authHeader.replace("Bearer ", "");
     const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
@@ -35,9 +54,10 @@ serve(async (req) => {
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
     if (customers.data.length === 0) throw new Error("No Stripe customer found");
 
+    const appUrl = resolveAppUrl(req);
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customers.data[0].id,
-      return_url: `${req.headers.get("origin")}/dashboard/settings`,
+      return_url: `${appUrl}/dashboard/settings`,
     });
 
     return new Response(JSON.stringify({ url: portalSession.url }), {

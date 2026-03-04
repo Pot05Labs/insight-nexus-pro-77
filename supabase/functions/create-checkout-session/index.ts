@@ -8,6 +8,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const DEFAULT_APP_URL = Deno.env.get("SITE_URL") ?? Deno.env.get("APP_URL") ?? "https://signalstack.africa";
+const ALLOWED_ORIGINS = [
+  "https://signalstack.africa",
+  "https://www.signalstack.africa",
+];
+
+function resolveAppUrl(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  if (
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.includes(".lovable.app") ||
+    origin.includes(".lovableproject.com") ||
+    origin.startsWith("http://localhost")
+  ) {
+    return origin;
+  }
+  return DEFAULT_APP_URL;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -19,7 +38,10 @@ serve(async (req) => {
   );
 
   try {
-    const authHeader = req.headers.get("Authorization")!;
+    const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      throw new Error("Authorization header missing");
+    }
     const token = authHeader.replace("Bearer ", "");
     const { data } = await supabaseClient.auth.getUser(token);
     const user = data.user;
@@ -39,13 +61,14 @@ serve(async (req) => {
       customerId = customers.data[0].id;
     }
 
+    const appUrl = resolveAppUrl(req);
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       customer_email: customerId ? undefined : user.email,
       line_items: [{ price: priceId, quantity: 1 }],
       mode: "subscription",
-      success_url: `${req.headers.get("origin")}/billing?checkout=success`,
-      cancel_url: `${req.headers.get("origin")}/billing?checkout=canceled`,
+      success_url: `${appUrl}/billing?checkout=success`,
+      cancel_url: `${appUrl}/billing?checkout=canceled`,
       metadata: {
         user_id: user.id,
         plan_name: planName || "",

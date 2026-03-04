@@ -130,27 +130,22 @@ Always include an explanation framed as: WHAT this query reveals, SO WHAT it mea
 
 // --- Auth Helper ---
 async function authenticateUser(req: Request): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.get("authorization");
+  const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
 
-  const token = authHeader.slice(7);
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    // Fallback: accept the anon key token (backwards compatible)
-    return { userId: "anon" };
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase auth configuration missing (SUPABASE_URL/SUPABASE_ANON_KEY).");
   }
 
-  try {
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-    if (error || !user) return null;
-    return { userId: user.id };
-  } catch {
-    // If service role key isn't set, allow through with anon key (backwards compatible)
-    return { userId: "anon" };
-  }
+  const token = authHeader.slice(7);
+  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
+  if (error || !user) return null;
+  return { userId: user.id };
 }
 
 // --- Intelligence Injection ---

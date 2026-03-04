@@ -20,30 +20,21 @@ export interface ParsedFile {
 
 export function parseCSV(text: string, filename: string): ParsedFile {
   const warnings: string[] = [];
-  const rawLines = text.split(/\r?\n/);
-  const nonEmptyLines = rawLines.filter(l => l.trim().length > 0);
 
-  if (nonEmptyLines.length < 2) {
-    throw new Error(`File has ${nonEmptyLines.length} non-empty lines. Need at least 2 (header + 1 data row).`);
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+  const sep = ext === "tsv" || ext === "tab" ? "\t" : detectSeparator(firstLine);
+
+  const parsedRows = parseDelimitedRows(text, sep);
+  if (parsedRows.length < 2) {
+    throw new Error(`File has ${parsedRows.length} non-empty rows. Need at least 2 (header + 1 data row).`);
   }
 
-  if (rawLines.length !== nonEmptyLines.length) {
-    warnings.push(`Skipped ${rawLines.length - nonEmptyLines.length} empty lines.`);
-  }
-
-  // Detect separator from first line
-  const first = nonEmptyLines[0];
-  const tabCount = (first.match(/\t/g) || []).length;
-  const commaCount = (first.match(/,/g) || []).length;
-  const pipeCount = (first.match(/\|/g) || []).length;
-  const sep = tabCount > commaCount && tabCount > pipeCount ? "\t"
-    : pipeCount > commaCount ? "|" : ",";
-
-  const headers = splitLine(nonEmptyLines[0], sep);
+  const headers = parsedRows[0].map((header) => header.replace(/^\uFEFF/, ""));
   const rows: Record<string, string>[] = [];
 
-  for (let i = 1; i < nonEmptyLines.length; i++) {
-    const values = splitLine(nonEmptyLines[i], sep);
+  for (let i = 1; i < parsedRows.length; i++) {
+    const values = parsedRows[i];
     const obj: Record<string, string> = {};
     for (let j = 0; j < headers.length; j++) {
       obj[headers[j]] = values[j] ?? "";
@@ -55,34 +46,84 @@ export function parseCSV(text: string, filename: string): ParsedFile {
     headers,
     rows,
     rowCount: rows.length,
-    fileType: "csv",
+    fileType: sep === "\t" ? "tsv" : "csv",
     warnings,
   };
 }
 
-function splitLine(line: string, sep: string): string[] {
-  const values: string[] = [];
+function parseDelimitedRows(text: string, sep: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let current = "";
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
     if (char === '"') {
-      if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
-        current += '"';  // escaped quote
+      const nextChar = text[i + 1];
+      if (inQuotes && nextChar === '"') {
+        current += '"';
         i++;
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (char === sep && !inQuotes) {
-      values.push(current.trim());
+      continue;
+    }
+
+    if (!inQuotes && char === sep) {
+      row.push(current.trim());
       current = "";
-    } else {
-      current += char;
+      continue;
+    }
+
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && text[i + 1] === "\n") i++;
+      row.push(current.trim());
+      current = "";
+      if (row.some((value) => value.length > 0)) rows.push(row);
+      row = [];
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (inQuotes) {
+    throw new Error("Malformed delimited file: unterminated quoted field.");
+  }
+
+  row.push(current.trim());
+  if (row.some((value) => value.length > 0)) rows.push(row);
+  return rows;
+}
+
+function detectSeparator(headerRow: string): string {
+  const separators = [",", "\t", "|", ";"];
+  const counts: Record<string, number> = { ",": 0, "\t": 0, "|": 0, ";": 0 };
+  let inQuotes = false;
+
+  for (let i = 0; i < headerRow.length; i++) {
+    const char = headerRow[i];
+    if (char === '"') {
+      const nextChar = headerRow[i + 1];
+      if (inQuotes && nextChar === '"') {
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && separators.includes(char)) {
+      counts[char] += 1;
     }
   }
-  values.push(current.trim());
-  return values;
+
+  let best = ",";
+  for (const candidate of separators) {
+    if (counts[candidate] > counts[best]) best = candidate;
+  }
+  return counts[best] > 0 ? best : ",";
 }
 
 /* ------------------------------------------------------------------ */
@@ -115,7 +156,7 @@ export async function parseXLSX(file: File): Promise<ParsedFile> {
   const totalDataRows = range.e.r; // 0-indexed, so this is the count of data rows (excluding header)
 
   // Convert to JSON with raw values, all as strings
-  const jsonRows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet, {
+  const jsonRows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, {
     defval: "",      // empty cells become ""
     raw: true,       // raw values
     dateNF: "yyyy-mm-dd",  // date format hint

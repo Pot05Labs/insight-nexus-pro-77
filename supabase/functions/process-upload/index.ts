@@ -666,25 +666,94 @@ async function parseXLSX(blob: Blob): Promise<ParsedResult> {
 /*  CSV Parser                                                        */
 /* ------------------------------------------------------------------ */
 
-function parseCSV(text: string): ParsedResult {
-  const lines = text.split("\n").filter((l: string) => l.trim());
-  if (lines.length < 2) throw new Error("CSV file has no data rows.");
+function parseDelimitedRows(text: string, separator: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
 
-  const headers = lines[0].split(",").map((h: string) => h.trim().replace(/^["']|["']$/g, ""));
-  const rows = lines.slice(1).map((l: string) => {
-    const values: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (const char of l) {
-      if (char === '"') { inQuotes = !inQuotes; continue; }
-      if (char === "," && !inQuotes) { values.push(current.trim()); current = ""; continue; }
-      current += char;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (char === '"') {
+      const nextChar = text[i + 1];
+      if (inQuotes && nextChar === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
     }
-    values.push(current.trim());
+
+    if (!inQuotes && char === separator) {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell.trim());
+      cell = "";
+      if (row.some((value) => value.length > 0)) rows.push(row);
+      row = [];
+      continue;
+    }
+
+    cell += char;
+  }
+
+  if (inQuotes) {
+    throw new Error("Malformed delimited file: unterminated quoted field.");
+  }
+
+  row.push(cell.trim());
+  if (row.some((value) => value.length > 0)) rows.push(row);
+  return rows;
+}
+
+function detectSeparator(headerRow: string): string {
+  const separators = [",", "\t", "|", ";"];
+  const counts: Record<string, number> = { ",": 0, "\t": 0, "|": 0, ";": 0 };
+  let inQuotes = false;
+
+  for (let i = 0; i < headerRow.length; i++) {
+    const char = headerRow[i];
+    if (char === '"') {
+      const nextChar = headerRow[i + 1];
+      if (inQuotes && nextChar === '"') {
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && separators.includes(char)) {
+      counts[char] += 1;
+    }
+  }
+
+  let best = ",";
+  for (const candidate of separators) {
+    if (counts[candidate] > counts[best]) best = candidate;
+  }
+  return counts[best] > 0 ? best : ",";
+}
+
+function parseCSV(text: string, separator = ","): ParsedResult {
+  const parsedRows = parseDelimitedRows(text, separator);
+  if (parsedRows.length < 2) throw new Error("Delimited file has no data rows.");
+
+  const headers = parsedRows[0].map((h) => h.replace(/^\uFEFF/, "").trim().replace(/^["']|["']$/g, ""));
+  const rows = parsedRows.slice(1).map((values) => {
     const obj: Record<string, unknown> = {};
-    headers.forEach((h, i) => { obj[h] = values[i] ?? null; });
+    headers.forEach((h, i) => {
+      obj[h] = values[i] ?? null;
+    });
     return obj;
   });
+
   return { headers, rows };
 }
 
@@ -789,16 +858,11 @@ Deno.serve(async (req) => {
         jsonRows = result.rows;
       } else if (fileType === "tsv" || fileType === "tab" || fileType === "txt") {
         const text = await fileBlob.text();
-        const lines = text.split("\n").filter((l: string) => l.trim());
-        if (lines.length < 2) throw new Error("File has no data rows.");
-        const sep = lines[0].includes("\t") ? "\t" : lines[0].includes("|") ? "|" : ",";
-        headers = lines[0].split(sep).map((h: string) => h.trim().replace(/^["']|["']$/g, ""));
-        jsonRows = lines.slice(1).map((l: string) => {
-          const cells = l.split(sep).map((c: string) => c.trim());
-          const obj: Record<string, unknown> = {};
-          headers.forEach((h, i) => { obj[h] = cells[i] ?? null; });
-          return obj;
-        });
+        const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+        const separator = fileType === "tsv" || fileType === "tab" ? "\t" : detectSeparator(firstLine);
+        const result = parseCSV(text, separator);
+        headers = result.headers;
+        jsonRows = result.rows;
       } else if (fileType === "xlsx" || fileType === "xls") {
         const result = await parseXLSX(fileBlob);
         headers = result.headers;

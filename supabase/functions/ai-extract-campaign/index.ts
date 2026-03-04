@@ -1,12 +1,41 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function authenticateUser(req: Request): Promise<string | null> {
+  const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase auth configuration missing (SUPABASE_URL/SUPABASE_ANON_KEY).");
+  }
+
+  const token = authHeader.slice(7);
+  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
+  if (error || !user) return null;
+  return user.id;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const userId = await authenticateUser(req);
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized. Please log in." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { slideTexts, fileName } = await req.json();
     const OPENROUTER_KEY = Deno.env.get("OPENROUTER");
     if (!OPENROUTER_KEY) throw new Error("OPENROUTER secret not set");
