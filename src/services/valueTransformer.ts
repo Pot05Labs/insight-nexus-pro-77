@@ -81,27 +81,80 @@ export function toDate(raw: string | null | undefined): string | null {
     }
   }
 
-  // Try standard date parsing
+  // ISO format YYYY-MM-DD (unambiguous — parse via regex, not new Date())
+  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const [, yyyy, mm, dd] = isoMatch;
+    const d2 = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
+    if (!isNaN(d2.getTime())) {
+      const year = d2.getFullYear();
+      if (year >= 1990 && year <= 2040) {
+        return d2.toISOString().split("T")[0];
+      }
+    }
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY (South African priority — MUST run before new Date())
+  // new Date("01/03/2024") interprets as MM/DD (Jan 3) in V8, but SA means DD/MM (1 Mar).
+  const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmyMatch) {
+    let [, first, second, yyyy] = dmyMatch;
+    let day = parseInt(first);
+    let month = parseInt(second);
+
+    // Disambiguate: if first > 12, it MUST be a day (DD/MM format).
+    // If second > 12, it MUST be a month error — swap to treat as MM/DD.
+    // If both <= 12, prefer DD/MM for South African context.
+    if (day <= 12 && month > 12) {
+      // First number fits as month, second doesn't — this is MM/DD
+      [day, month] = [month, day];
+    }
+    // else: day > 12 means it's definitely DD/MM (correct as-is)
+    // else: both <= 12 — assume DD/MM (SA default)
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d2 = new Date(parseInt(yyyy), month - 1, day);
+      if (!isNaN(d2.getTime()) && d2.getDate() === day) {
+        return d2.toISOString().split("T")[0];
+      }
+    }
+  }
+
+  // DD/MM/YY (2-digit year, common in SA retail exports)
+  const dmyShortMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+  if (dmyShortMatch) {
+    let [, first, second, yy] = dmyShortMatch;
+    let day = parseInt(first);
+    let month = parseInt(second);
+
+    // Same disambiguation as 4-digit year
+    if (day <= 12 && month > 12) {
+      [day, month] = [month, day];
+    }
+
+    // Century inference: 00-49 → 2000s, 50-99 → 1900s
+    const shortYear = parseInt(yy);
+    const fullYear = shortYear < 50 ? 2000 + shortYear : 1900 + shortYear;
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d2 = new Date(fullYear, month - 1, day);
+      if (!isNaN(d2.getTime()) && d2.getDate() === day) {
+        return d2.toISOString().split("T")[0];
+      }
+    }
+  }
+
+  // Named month formats ("1 Mar 2024", "March 1, 2024", etc.) — safe for new Date()
+  // Also handles YYYY/MM/DD and other unambiguous formats.
   const d = new Date(s);
   if (!isNaN(d.getTime())) {
-    // Sanity check: date should be between 1990 and 2040
     const year = d.getFullYear();
     if (year >= 1990 && year <= 2040) {
       return d.toISOString().split("T")[0];
     }
   }
 
-  // Try DD/MM/YYYY and DD-MM-YYYY (common in SA)
-  const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (dmyMatch) {
-    const [, dd, mm, yyyy] = dmyMatch;
-    const d2 = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-    if (!isNaN(d2.getTime())) {
-      return d2.toISOString().split("T")[0];
-    }
-  }
-
-  // Return raw string if it looks date-like but couldn't parse
+  // Could not parse
   return null;
 }
 

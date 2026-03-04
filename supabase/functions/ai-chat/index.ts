@@ -117,6 +117,8 @@ You have access to the following database tables:
 
 IMPORTANT: All tables use soft deletes. The frontend will automatically add a deleted_at IS NULL filter to every query.
 
+CRITICAL TENANT SCOPING: Never generate queries that could return data from other users. The frontend automatically adds user_id and deleted_at filtering — do NOT include user_id, project_id, or deleted_at in your generated filters. The frontend strips these columns from AI-generated filters as a security measure. Focus only on data-relevant filters (retailer, brand, date, etc.).
+
 When the user asks a question:
 1. Determine which table(s) to query
 2. Generate a valid Supabase JS query using the supabase client (e.g. supabase.from("sell_out_data").select("product_name_raw, revenue").order("revenue", {ascending: false}).limit(5))
@@ -125,6 +127,7 @@ When the user asks a question:
 
 Filters should be objects like: {"column":"retailer","operator":"eq","value":"Amazon"}
 Supported operators: eq, neq, gt, gte, lt, lte, like, ilike
+Forbidden filter columns (handled by frontend): user_id, project_id, deleted_at
 
 Always include an explanation framed as: WHAT this query reveals, SO WHAT it means strategically, and NOW WHAT to do with this insight. If the question is ambiguous, make reasonable assumptions and state them.`;
 

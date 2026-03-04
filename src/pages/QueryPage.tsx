@@ -69,6 +69,10 @@ const QueryPage = () => {
       const validTables = ["sell_out_data", "campaign_data_v2", "computed_metrics"];
       if (!validTables.includes(querySpec.table)) return null;
 
+      // Tenant scoping: get current user for mandatory user_id filter
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) return null;
+
       let query = supabase.from(querySpec.table as any).select(querySpec.select);
 
       // Always exclude soft-deleted rows
@@ -76,17 +80,23 @@ const QueryPage = () => {
         query = query.is("deleted_at", null);
       }
 
-      if (querySpec.filters) {
-        for (const f of querySpec.filters) {
-          if (f.operator === "eq") query = query.eq(f.column, f.value);
-          else if (f.operator === "neq") query = query.neq(f.column, f.value);
-          else if (f.operator === "gt") query = query.gt(f.column, f.value);
-          else if (f.operator === "gte") query = query.gte(f.column, f.value);
-          else if (f.operator === "lt") query = query.lt(f.column, f.value);
-          else if (f.operator === "lte") query = query.lte(f.column, f.value);
-          else if (f.operator === "like") query = query.like(f.column, f.value);
-          else if (f.operator === "ilike") query = query.ilike(f.column, f.value);
-        }
+      // Enforce tenant scoping — ALWAYS filter by user_id (defense-in-depth alongside RLS)
+      query = query.eq("user_id", currentUser.id);
+
+      // Sanitize AI-generated filters: strip any attempts to override tenant scoping or soft-delete
+      const safeFilters = (querySpec.filters ?? []).filter(
+        f => !["user_id", "project_id", "deleted_at"].includes(f.column)
+      );
+
+      for (const f of safeFilters) {
+        if (f.operator === "eq") query = query.eq(f.column, f.value);
+        else if (f.operator === "neq") query = query.neq(f.column, f.value);
+        else if (f.operator === "gt") query = query.gt(f.column, f.value);
+        else if (f.operator === "gte") query = query.gte(f.column, f.value);
+        else if (f.operator === "lt") query = query.lt(f.column, f.value);
+        else if (f.operator === "lte") query = query.lte(f.column, f.value);
+        else if (f.operator === "like") query = query.like(f.column, f.value);
+        else if (f.operator === "ilike") query = query.ilike(f.column, f.value);
       }
 
       if (querySpec.order) query = query.order(querySpec.order.column, { ascending: querySpec.order.ascending });

@@ -40,7 +40,13 @@ export function detectAnomalies(
 
   const values = series.map((s) => s.value);
   const mean = values.reduce((s, v) => s + v, 0) / values.length;
-  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  // Use Bessel's correction (N-1) for sample standard deviation.
+  // Population std dev (N) underestimates variability for small datasets,
+  // causing false-positive anomaly flags when users have only a few weeks of data.
+  const variance =
+    values.length > 1
+      ? values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1)
+      : 0;
   const stdDev = Math.sqrt(variance);
 
   if (stdDev === 0) {
@@ -97,7 +103,11 @@ export function detectAnomaliesIQR(
   const upper = q3 + multiplier * iqr;
 
   const mean = values.reduce((s, v) => s + v, 0) / values.length;
-  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  // Bessel's correction (N-1) for sample std dev, consistent with detectAnomalies
+  const variance =
+    values.length > 1
+      ? values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1)
+      : 0;
   const stdDev = Math.sqrt(variance);
 
   const anomalies: AnomalyPoint[] = [];

@@ -97,15 +97,27 @@ const DashboardHome = () => {
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const cpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
   const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
-  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
   // Canonical metrics from build spec
   const totalConversions = campaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
   const totalCampaignRevenue = campaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  // ROAS uses campaign-attributed revenue, NOT total sell-out revenue.
+  // If no campaign revenue attribution exists, roas stays 0 and displays as "—".
+  const roas = totalSpend > 0 && totalCampaignRevenue > 0 ? totalCampaignRevenue / totalSpend : 0;
   const eCPM = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
   const cps = totalConversions > 0 ? totalSpend / totalConversions : 0;
 
   // Campaign attribution — campaign-period vs baseline
+  // Extract distinct brands from sell-out data so attribution is scoped
+  // to matching brands, preventing cross-brand revenue contamination.
+  const sellOutBrands = useMemo(() => {
+    const brands = new Set<string>();
+    for (const row of data) {
+      if (row.brand) brands.add(row.brand);
+    }
+    return Array.from(brands);
+  }, [data]);
+
   const attributionResults = useMemo<AttributionResult[]>(() => {
     if (!hasCampaigns || data.length === 0) return [];
     const flights: CampaignFlight[] = campaigns
@@ -117,8 +129,11 @@ const DashboardHome = () => {
         flight_end: c.flight_end ?? c.flight_start!,
         spend: Number(c.spend ?? 0),
       }));
-    return computeCampaignAttribution(flights, data);
-  }, [campaigns, data, hasCampaigns]);
+    // Pass brands to scope attribution — if only one brand exists, all
+    // revenue is already that brand so filtering is a no-op. With multiple
+    // brands, the attribution function filters sell-out to matching brands.
+    return computeCampaignAttribution(flights, data, sellOutBrands.length > 1 ? sellOutBrands : undefined);
+  }, [campaigns, data, hasCampaigns, sellOutBrands]);
 
   const totalIncrementalRevenue = attributionResults.reduce((s, r) => s + r.incrementalRevenue, 0);
   const iROAS = totalSpend > 0 ? totalIncrementalRevenue / totalSpend : 0;
@@ -321,11 +336,14 @@ const DashboardHome = () => {
 
   // ── Chart Insight Annotations ──
   const revenueSpendAnnotation = useMemo(() => {
+    if (totalSpend > 0 && roas > 0) {
+      return `Campaign ROAS: ${roas.toFixed(1)}x \u2014 ${fmtZAR(totalCampaignRevenue)} campaign revenue for ${fmtZAR(totalSpend)} spend`;
+    }
     if (totalSpend > 0 && totalRevenue > 0) {
-      return `Overall ROAS: ${roas.toFixed(1)}x \u2014 ${fmtZAR(totalRevenue)} earned for every R1 spent on ads`;
+      return `Total sell-out revenue: ${fmtZAR(totalRevenue)} | Ad spend: ${fmtZAR(totalSpend)} (no campaign revenue attribution available)`;
     }
     return null;
-  }, [totalRevenue, totalSpend, roas]);
+  }, [totalRevenue, totalSpend, roas, totalCampaignRevenue]);
 
   const brandAnnotation = useMemo(() => {
     if (brandDataRaw.length > 0 && totalRevenue > 0) {
@@ -492,12 +510,14 @@ const DashboardHome = () => {
         {!isLoading && !hasData && !hasCampaigns && (
           <div className="mb-6 space-y-4">
             <EmptyState message="Upload sell-out or campaign data to see your dashboard." />
-            <div className="flex justify-center">
-              <Button variant="outline" size="sm" onClick={handleLoadDemo} disabled={demoLoading}>
-                {demoLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Database className="h-3.5 w-3.5 mr-1.5" />}
-                {demoLoading ? "Loading demo data..." : "Load Demo Data"}
-              </Button>
-            </div>
+            {import.meta.env.DEV && (
+              <div className="flex justify-center">
+                <Button variant="outline" size="sm" onClick={handleLoadDemo} disabled={demoLoading}>
+                  {demoLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Database className="h-3.5 w-3.5 mr-1.5" />}
+                  {demoLoading ? "Loading demo data..." : "Load Demo Data"}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -646,8 +666,8 @@ const DashboardHome = () => {
                               <Target className="h-3.5 w-3.5 text-primary" />
                             </div>
                           </div>
-                          <p className="font-display text-2xl font-bold">{roas.toFixed(1)}x</p>
-                          <p className="text-[10px] text-muted-foreground">Revenue / Spend</p>
+                          <p className="font-display text-2xl font-bold">{roas > 0 ? `${roas.toFixed(1)}x` : "\u2014"}</p>
+                          <p className="text-[10px] text-muted-foreground">{roas > 0 ? "Campaign Revenue / Spend" : "No campaign revenue data"}</p>
                         </CardContent>
                       </Card>
                       <Card className="border-chart-2/20 bg-chart-2/3">

@@ -12,6 +12,8 @@ export interface CampaignFlight {
   flight_start: string;
   flight_end: string;
   spend: number;
+  /** Optional brand for scoping attribution to matching sell-out data */
+  brand?: string;
 }
 
 export interface AttributionResult {
@@ -48,14 +50,31 @@ export interface AttributionResult {
  *
  * Pre-window: same duration as flight, immediately before flight_start.
  * Post-window: 7 days after flight_end (tail effect).
+ *
+ * @param brands Optional brand filter — when provided, only sell-out rows
+ *   matching these brands are used for revenue aggregation. This prevents
+ *   a campaign for Brand A from being attributed lift from Brand B's revenue.
  */
 export function computeCampaignAttribution(
   campaigns: CampaignFlight[],
   sellOut: SellOutRow[],
+  brands?: string[],
 ): AttributionResult[] {
+  // Filter sell-out to relevant brands if provided, so a Cadbury campaign
+  // does not get credited with Nestle revenue on the same day.
+  const relevantSellOut = brands?.length
+    ? sellOut.filter(
+        (r) =>
+          r.brand &&
+          brands.some((b) =>
+            r.brand!.toLowerCase().includes(b.toLowerCase()),
+          ),
+      )
+    : sellOut;
+
   // Group sell-out by date for fast lookup
   const revenueByDate: Record<string, number> = {};
-  for (const row of sellOut) {
+  for (const row of relevantSellOut) {
     if (!row.date) continue;
     const d = row.date.slice(0, 10);
     revenueByDate[d] = (revenueByDate[d] ?? 0) + Number(row.revenue ?? 0);

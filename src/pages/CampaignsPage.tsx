@@ -88,6 +88,15 @@ const CampaignsPage = () => {
     }));
   }, [filtered]);
 
+  // Extract distinct brands from sell-out data for scoped attribution
+  const sellOutBrands = useMemo(() => {
+    const brands = new Set<string>();
+    for (const row of sellOutData) {
+      if (row.brand) brands.add(row.brand);
+    }
+    return Array.from(brands);
+  }, [sellOutData]);
+
   // Campaign Attribution
   const attribution = useMemo(() => {
     if (sellOutData.length === 0 || campaigns.length === 0) return [];
@@ -100,8 +109,8 @@ const CampaignsPage = () => {
         flight_end: c.flight_end ?? c.flight_start!,
         spend: Number(c.spend ?? 0),
       }));
-    return computeCampaignAttribution(flights, sellOutData);
-  }, [campaigns, sellOutData]);
+    return computeCampaignAttribution(flights, sellOutData, sellOutBrands.length > 1 ? sellOutBrands : undefined);
+  }, [campaigns, sellOutData, sellOutBrands]);
 
   // Flight calendar
   const flightData = useMemo(() => {
