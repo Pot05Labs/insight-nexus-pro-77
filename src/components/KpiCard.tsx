@@ -12,9 +12,11 @@ interface KpiCardProps {
   delay?: number;
   colorClass?: string;
   delta?: number;
+  /** Label for the comparison period, e.g. "vs Jan 2024" */
+  periodLabel?: string;
 }
 
-const KpiCard = ({ label, value, icon: Icon, loading, delay = 0, colorClass = "bg-primary/8 text-primary", delta }: KpiCardProps) => {
+const KpiCard = ({ label, value, icon: Icon, loading, delay = 0, colorClass = "bg-primary/8 text-primary", delta, periodLabel }: KpiCardProps) => {
   const [bgClass, textClass] = colorClass.includes(" ") ? colorClass.split(" ") : ["bg-primary/8", "text-primary"];
 
   return (
@@ -31,7 +33,12 @@ const KpiCard = ({ label, value, icon: Icon, loading, delay = 0, colorClass = "b
             <div className="flex items-end gap-2">
               <p className="font-display text-xl font-bold">{value}</p>
               {delta !== undefined && delta !== 0 && (
-                <DeltaIndicator delta={delta} />
+                <div className="flex items-center gap-1">
+                  <DeltaIndicator delta={delta} />
+                  {periodLabel && (
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">vs {periodLabel}</span>
+                  )}
+                </div>
               )}
             </div>
           )}

@@ -9,7 +9,7 @@ import {
   BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
-import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, ArrowUpDown } from "lucide-react";
+import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, ArrowUpDown, Lightbulb } from "lucide-react";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
@@ -153,6 +153,26 @@ const CampaignsPage = () => {
 
   const dataSummary = `Campaign Performance: Total Spend ${fmtZAR(totalSpend)}, Impressions ${totalImpressions.toLocaleString()}, Clicks ${totalClicks.toLocaleString()}, CTR ${ctr.toFixed(2)}%, ROAS ${roas.toFixed(1)}x. Platforms: ${platformData.map((p) => `${p.platform}: ${fmtZAR(p.spend)} spend`).join(", ")}. Campaign Attribution: ${attribution.slice(0, 3).map((a) => `${a.campaign_name}: ${fmtZAR(a.incrementalRevenue)} incremental revenue, ${a.liftPct.toFixed(1)}% lift`).join("; ")}.`;
 
+  // Data context line
+  const uniqueCampaigns = useMemo(() => new Set(campaigns.map((c) => c.campaign_name).filter(Boolean)).size, [campaigns]);
+  const uniquePlatforms = useMemo(() => new Set(campaigns.map((c) => c.platform).filter(Boolean)).size, [campaigns]);
+  const campaignDateRange = useMemo(() => {
+    const dates = campaigns.map((c) => c.flight_start).filter(Boolean).sort() as string[];
+    if (dates.length === 0) return "";
+    const fmt = (d: string) => new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
+    const first = fmt(dates[0]);
+    const last = fmt(dates[dates.length - 1]);
+    return first === last ? first : `${first} \u2013 ${last}`;
+  }, [campaigns]);
+
+  // Key finding: best campaign by ROAS (only where spend > 0)
+  const campaignKeyFinding = useMemo(() => {
+    const withRoas = campaignTable.filter((c) => c.spend > 0 && c.roas > 0);
+    if (withRoas.length === 0) return null;
+    const best = withRoas.reduce((a, b) => (b.roas > a.roas ? b : a), withRoas[0]);
+    return `Top performer: ${best.campaign_name} with ${best.roas.toFixed(1)}x ROAS on ${best.platform || "Unknown"}`;
+  }, [campaignTable]);
+
   // Flight calendar helpers
   const allDates = flightData.flatMap((f) => [f.start, f.end].filter(Boolean));
   const calMin = allDates.length > 0 ? allDates.sort()[0] : "";
@@ -165,6 +185,11 @@ const CampaignsPage = () => {
         <div>
           <h1 className="font-display text-2xl font-bold">Campaigns</h1>
           <p className="text-muted-foreground text-sm">Campaign attribution — connecting advertising investment to commercial outcomes.</p>
+          {hasData && campaignDateRange && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {uniqueCampaigns.toLocaleString()} campaigns &middot; {uniquePlatforms.toLocaleString()} platforms &middot; {campaignDateRange}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {hasData && (
@@ -184,6 +209,13 @@ const CampaignsPage = () => {
           <ExportPdfButton targetRef={reportRef} filename="SignalStack-Campaigns" />
         </div>
       </div>
+
+      {campaignKeyFinding && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
+          <Lightbulb className="h-4 w-4 text-accent shrink-0" />
+          <span className="text-foreground/80">{campaignKeyFinding}</span>
+        </div>
+      )}
 
       <div ref={reportRef}>
         {loading ? (

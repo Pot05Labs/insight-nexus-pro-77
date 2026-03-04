@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Lightbulb } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
@@ -36,6 +36,28 @@ const BehaviourPage = () => {
   const compDataAll = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
     .map(([name, value]) => ({ name, value: Math.round(value) }));
   const compData = topNWithOther(compDataAll, 5, "value", "name");
+
+  // Data context line
+  const dateRange = useMemo(() => {
+    const dates = data.map((r) => r.date).filter(Boolean).sort();
+    if (dates.length === 0) return "";
+    const fmt = (d: string) => new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
+    const first = fmt(dates[0]!);
+    const last = fmt(dates[dates.length - 1]!);
+    return first === last ? first : `${first} \u2013 ${last}`;
+  }, [data]);
+
+  // Key finding: peak trading day
+  const FULL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const keyFinding = useMemo(() => {
+    const totalTransactions = dayData.reduce((s, d) => s + d.revenue, 0);
+    if (totalTransactions === 0) return null;
+    const peak = dayData.reduce((a, b) => (b.revenue > a.revenue ? b : a), dayData[0]);
+    const peakIdx = DAYS.indexOf(peak.day);
+    const dayName = peakIdx >= 0 ? FULL_DAYS[peakIdx] : peak.day;
+    const pct = ((peak.revenue / totalTransactions) * 100).toFixed(1);
+    return `Peak trading day: ${dayName} generates ${pct}% of transactions`;
+  }, [dayData]);
 
   const generateSegments = async () => {
     setSegLoading(true);
@@ -74,7 +96,18 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
       <div>
         <h1 className="font-display text-2xl font-bold">Behaviour</h1>
         <p className="text-muted-foreground text-sm">Behavioural intelligence — understanding the nudges that drive purchase decisions.</p>
+        {hasData && dateRange && (
+          <p className="text-sm text-muted-foreground mt-1">
+            {data.length.toLocaleString()} transactions &middot; {dateRange}
+          </p>
+        )}
       </div>
+      {keyFinding && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
+          <Lightbulb className="h-4 w-4 text-accent shrink-0" />
+          <span className="text-foreground/80">{keyFinding}</span>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <ExportCsvButton
           filename="Behaviour"

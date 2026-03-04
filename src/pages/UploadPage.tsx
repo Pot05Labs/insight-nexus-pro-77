@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileSpreadsheet, FileText, File as FileLucide, Presentation, FileJson, FileCode, X, CheckCircle2, AlertCircle, Loader2, Brain, Search, Calculator, PenTool, FileSearch, Trash2, Inbox, RotateCcw } from "lucide-react";
+import { Upload, FileSpreadsheet, FileText, File as FileLucide, Presentation, FileJson, FileCode, X, CheckCircle2, AlertCircle, Loader2, Brain, Search, Calculator, PenTool, FileSearch, Trash2, Inbox, RotateCcw, BarChart3 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,8 @@ type UploadFile = {
   error?: string;
   processingMessage?: string;
   agents: ProcessingStage[];
+  resultRowCount?: number;
+  resultDataType?: string;
 };
 
 type ExistingUpload = {
@@ -58,6 +61,18 @@ const createAgents = (): ProcessingStage[] => [
 ];
 
 const stageLabels = ["Classifying...", "Extracting...", "Matching...", "Computing...", "Analysing..."];
+
+const relativeTime = (dateStr: string) => {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+};
 
 const UploadPage = () => {
   const [files, setFiles] = useState<UploadFile[]>([]);
@@ -200,7 +215,13 @@ const UploadPage = () => {
             : f
         ));
 
-        updateFile(fileId, { status: "done", progress: 100, processingMessage: "Done!" });
+        updateFile(fileId, {
+          status: "done",
+          progress: 100,
+          processingMessage: "Done!",
+          resultRowCount: upload.row_count ?? 0,
+          resultDataType: typeLabel,
+        });
         toast({
           title: "File processed",
           description: `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
@@ -273,9 +294,15 @@ const UploadPage = () => {
 
       if (result.success) {
         const { audit } = result;
-        updateFile(fileId, { status: "done", progress: 100, processingMessage: "Done!" });
         const typeLabel = result.dataType === "mixed" ? "Sell-out + Campaign"
           : result.dataType === "campaign" ? "Campaign" : "Sell-out";
+        updateFile(fileId, {
+          status: "done",
+          progress: 100,
+          processingMessage: "Done!",
+          resultRowCount: audit.successfulInserts,
+          resultDataType: typeLabel,
+        });
         let desc = `${audit.successfulInserts.toLocaleString()} rows inserted as ${typeLabel} data.`;
         if (audit.failedInserts > 0) desc += ` ${audit.failedInserts} rows failed.`;
         if (result.mapping.source === "llm") desc += " (AI-assisted mapping)";
@@ -454,6 +481,14 @@ const UploadPage = () => {
         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
         <p className="font-medium mb-1">Drop files here or click to browse</p>
         <p className="text-sm text-muted-foreground">Supports CSV, XLSX, PPTX, PDF, JSON, XML, TXT, and more</p>
+        <div className="flex flex-wrap justify-center gap-1.5 mt-3">
+          {["CSV", "XLSX", "PPTX", "PDF", "JSON", "TXT"].map((ext) => (
+            <Badge key={ext} variant="outline" className="text-[10px] text-muted-foreground">
+              {ext}
+            </Badge>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">Max 100 MB per file</p>
         <input id="file-input" type="file" className="hidden" multiple
           onChange={(e) => e.target.files && addFiles(e.target.files)} />
       </motion.div>
@@ -489,7 +524,7 @@ const UploadPage = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-xs">Source name</Label>
-                    <Input placeholder="e.g. Amazon UK, Tesco" value={uf.sourceName} onChange={(e) => updateFile(uf.id, { sourceName: e.target.value })} disabled={uf.status !== "pending"} className="h-9 text-sm" />
+                    <Input placeholder="e.g. Pick n Pay, Checkers" value={uf.sourceName} onChange={(e) => updateFile(uf.id, { sourceName: e.target.value })} disabled={uf.status !== "pending"} className="h-9 text-sm" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-xs">Data type</Label>
@@ -524,6 +559,45 @@ const UploadPage = () => {
                         </span>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {uf.status === "done" && (
+                  <div className="rounded-lg border bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-800/30 p-4 space-y-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Upload Complete</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div>
+                        <p className="text-muted-foreground">Rows</p>
+                        <p className="font-semibold">{uf.resultRowCount?.toLocaleString() ?? "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Data Type</p>
+                        <p className="font-semibold">{uf.resultDataType ?? "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Mapping</p>
+                        <p className="font-semibold">
+                          {uf.schemaReport
+                            ? uf.schemaReport.confidence === -1
+                              ? "AI Extraction"
+                              : `${uf.schemaReport.confidence}% match`
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">File Size</p>
+                        <p className="font-semibold">{(uf.file.size / 1024).toFixed(1)} KB</p>
+                      </div>
+                    </div>
+                    <Link to="/dashboard">
+                      <Button size="sm" variant="outline" className="mt-2 text-xs">
+                        <BarChart3 className="h-3 w-3 mr-1" />
+                        View Dashboard
+                      </Button>
+                    </Link>
                   </div>
                 )}
 
@@ -599,7 +673,20 @@ const UploadPage = () => {
                   </div>
                 )}
 
-                {uf.error && <p className="text-sm text-destructive">{uf.error}</p>}
+                {uf.status === "error" && uf.error && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-1">
+                    <p className="text-sm font-medium text-destructive">{uf.error}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {uf.error.includes("column") || uf.error.includes("Column")
+                        ? "Tip: Ensure your file has columns for date, revenue/sales, and product/SKU."
+                        : uf.error.includes("timeout") || uf.error.includes("Timeout")
+                        ? "Tip: Large files may take longer. Try splitting into smaller files."
+                        : uf.error.includes("parse") || uf.error.includes("Parse")
+                        ? "Tip: Check that your file isn't password-protected or corrupted."
+                        : "Tip: Try re-uploading the file. If the issue persists, check the file format."}
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -684,7 +771,7 @@ const UploadPage = () => {
                         </TableCell>
                         <TableCell className="text-sm text-right">{u.row_count ?? "—"}</TableCell>
                         <TableCell className="text-sm text-right text-muted-foreground">{(u.file_size / 1024).toFixed(1)} KB</TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{new Date(u.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{relativeTime(u.created_at)}</TableCell>
                         <TableCell className="flex items-center gap-1">
                           {(u.status === "processing" || u.status === "error") && (
                             <Button
@@ -724,6 +811,11 @@ const UploadPage = () => {
                         </TableCell>
                       </TableRow>
                     ))}
+                    <TableRow className="bg-muted/30 font-medium">
+                      <TableCell colSpan={4} className="text-xs">Total: {existingUploads.length} files</TableCell>
+                      <TableCell className="text-xs text-right">{existingUploads.reduce((s, u) => s + (u.row_count ?? 0), 0).toLocaleString()}</TableCell>
+                      <TableCell colSpan={3}></TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               </div>

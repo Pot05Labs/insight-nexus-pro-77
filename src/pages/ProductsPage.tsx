@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Lightbulb } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import SignalStackInsights from "@/components/SignalStackInsights";
@@ -97,6 +97,26 @@ const ProductsPage = () => {
 
   const dataSummary = `Top 10 Products: ${top10.map((p) => `${p.name} (${fmtZAR(p.revenue)})`).join(", ")}. Categories: ${categoryData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Brand rankings: ${brandRankings.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)}, ${b.marketShare.toFixed(1)}% share)`).join(", ")}. Total Revenue: ${fmtZAR(totalRevenue)}.`;
 
+  // Data context line
+  const uniqueProducts = useMemo(() => new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size, [data]);
+  const uniqueBrands = useMemo(() => new Set(data.map((r) => inferBrand(r)).filter(Boolean)).size, [data]);
+  const dateRange = useMemo(() => {
+    const dates = data.map((r) => r.date).filter(Boolean).sort();
+    if (dates.length === 0) return "";
+    const fmt = (d: string) => new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
+    const first = fmt(dates[0]!);
+    const last = fmt(dates[dates.length - 1]!);
+    return first === last ? first : `${first} \u2013 ${last}`;
+  }, [data]);
+
+  // Key finding: top product by revenue
+  const keyFinding = useMemo(() => {
+    if (top10.length === 0 || totalRevenue === 0) return null;
+    const top = top10[0];
+    const pct = ((top.revenue / totalRevenue) * 100).toFixed(1);
+    return `Top product: ${top.name} at ${fmtZAR(top.revenue)} \u2014 ${pct}% of total revenue`;
+  }, [top10, totalRevenue]);
+
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
   if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see product analytics." /></div>;
 
@@ -109,7 +129,18 @@ const ProductsPage = () => {
       <div>
         <h1 className="font-display text-2xl font-bold">Products</h1>
         <p className="text-muted-foreground text-sm">Product and brand performance — market share and mental availability analysis.</p>
+        {hasData && dateRange && (
+          <p className="text-sm text-muted-foreground mt-1">
+            {uniqueProducts.toLocaleString()} products &middot; {uniqueBrands.toLocaleString()} brands &middot; {dateRange}
+          </p>
+        )}
       </div>
+      {keyFinding && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
+          <Lightbulb className="h-4 w-4 text-accent shrink-0" />
+          <span className="text-foreground/80">{keyFinding}</span>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <ExportCsvButton
           filename="Products"

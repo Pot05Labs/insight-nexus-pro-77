@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Lightbulb } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import EmptyState from "@/components/EmptyState";
 import ExportCsvButton from "@/components/ExportCsvButton";
@@ -46,6 +47,27 @@ const GeographyPage = () => {
 
   const dataSummary = `Top Stores: ${storeData.map((s) => `${s.store} (${fmtZAR(s.revenue)})`).join(", ")}. Regions: ${regionData.map((r) => `${r.region} (${fmtZAR(r.revenue)})`).join(", ")}.`;
 
+  // Data context line
+  const uniqueRegions = useMemo(() => new Set(data.map((r) => inferRegion(r)).filter(Boolean)).size, [data]);
+  const uniqueStores = useMemo(() => new Set(data.map((r) => r.store_location).filter(Boolean)).size, [data]);
+  const dateRange = useMemo(() => {
+    const dates = data.map((r) => r.date).filter(Boolean).sort();
+    if (dates.length === 0) return "";
+    const fmt = (d: string) => new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
+    const first = fmt(dates[0]!);
+    const last = fmt(dates[dates.length - 1]!);
+    return first === last ? first : `${first} \u2013 ${last}`;
+  }, [data]);
+
+  // Key finding: top region by revenue
+  const totalRevenue = useMemo(() => regionData.reduce((s, r) => s + r.revenue, 0), [regionData]);
+  const keyFinding = useMemo(() => {
+    if (regionData.length === 0 || totalRevenue === 0) return null;
+    const top = regionData[0];
+    const pct = ((top.revenue / totalRevenue) * 100).toFixed(1);
+    return `Strongest region: ${top.region} at ${fmtZAR(top.revenue)} \u2014 ${pct}% of national revenue`;
+  }, [regionData, totalRevenue]);
+
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
   if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see geographic analytics." /></div>;
 
@@ -54,7 +76,18 @@ const GeographyPage = () => {
       <div>
         <h1 className="font-display text-2xl font-bold">Geography</h1>
         <p className="text-muted-foreground text-sm">Geographic performance — regional context effects and store-level analysis.</p>
+        {hasData && dateRange && (
+          <p className="text-sm text-muted-foreground mt-1">
+            {uniqueRegions.toLocaleString()} regions &middot; {uniqueStores.toLocaleString()} stores &middot; {dateRange}
+          </p>
+        )}
       </div>
+      {keyFinding && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
+          <Lightbulb className="h-4 w-4 text-accent shrink-0" />
+          <span className="text-foreground/80">{keyFinding}</span>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <ExportCsvButton
           filename="Geography"
