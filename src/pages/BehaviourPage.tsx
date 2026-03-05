@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Loader2, Lightbulb } from "lucide-react";
+import { Sparkles, Loader2, Lightbulb, Users, TrendingUp } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
@@ -13,31 +13,91 @@ import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { streamAiChat } from "@/services/aiChatStream";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const FULL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+interface Segment {
+  title: string;
+  desc: string;
+  activation: string;
+}
+
+/**
+ * Parse AI output into structured segments.
+ * The AI returns blocks like:
+ *   **Segment Name**: Description with **inner bold** terms…
+ *   Activation: Strategy text…
+ *
+ * We split on top-level segment headers (line-starting **Name**:) and group
+ * all body text into each segment, separating "Activation:" blocks.
+ */
+function parseSegmentBlocks(text: string): Segment[] {
+  const segments: Segment[] = [];
+  // Match segment headers: lines starting with ** and ending with **:
+  // Use a capturing split so we get both headers and body text
+  const headerPattern = /(?:^|\n)\s*\*\*([^*\n]{3,80})\*\*\s*[:\u2014\u2013-]\s*/g;
+  const headers: { title: string; index: number }[] = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = headerPattern.exec(text)) !== null) {
+    headers.push({ title: m[1].trim(), index: m.index + m[0].length });
+  }
+
+  for (let i = 0; i < headers.length; i++) {
+    const title = headers[i].title;
+    const bodyStart = headers[i].index;
+    const bodyEnd = i + 1 < headers.length ? headers[i + 1].index - (text.substring(0, headers[i + 1].index).match(/\n\s*\*\*[^*]{3,80}\*\*\s*[:\u2014\u2013-]\s*$/)?.[0]?.length ?? 0) : text.length;
+    const body = text.substring(bodyStart, bodyEnd).trim();
+
+    // Split body on "Activation:" line
+    const actMatch = body.match(/\n\s*\*?\*?Activation\*?\*?\s*[:\u2014\u2013-]\s*/i);
+    let desc: string;
+    let activation: string;
+    if (actMatch && actMatch.index !== undefined) {
+      desc = body.substring(0, actMatch.index).trim();
+      activation = body.substring(actMatch.index + actMatch[0].length).trim();
+    } else {
+      desc = body;
+      activation = "";
+    }
+
+    // Clean up any remaining markdown bold markers for display
+    const clean = (s: string) => s.replace(/\*\*/g, "").trim();
+    if (title && desc) {
+      segments.push({ title: clean(title), desc: clean(desc), activation: clean(activation) });
+    }
+  }
+
+  return segments;
+}
 
 const BehaviourPage = () => {
   const { data, loading } = useSellOutData();
-  const [segments, setSegments] = useState<{ title: string; desc: string }[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([]);
   const [segLoading, setSegLoading] = useState(false);
   const hasData = data.length > 0;
 
-  // Sales by day of week
-  const dayMap: Record<string, number> = {};
-  data.forEach((r) => {
-    if (!r.date) return;
-    const d = new Date(r.date);
-    if (isNaN(d.getTime())) return;
-    const day = DAYS[d.getDay()];
-    dayMap[day] = (dayMap[day] ?? 0) + Number(r.revenue ?? 0);
-  });
-  const dayData = DAYS.map((day) => ({ day, revenue: Math.round(dayMap[day] ?? 0) }));
+  // ── Memoised computations (avoid re-processing 10K+ rows on every render) ──
 
-  // Order composition by category (as proxy)
-  const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const compDataAll = Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
-    .map(([name, value]) => ({ name, value: Math.round(value) }));
-  const compData = topNWithOther(compDataAll, 5, "value", "name");
+  const dayData = useMemo(() => {
+    const dayMap: Record<string, number> = {};
+    for (const r of data) {
+      if (!r.date) continue;
+      const d = new Date(r.date);
+      if (isNaN(d.getTime())) continue;
+      const day = DAYS[d.getDay()];
+      dayMap[day] = (dayMap[day] ?? 0) + Number(r.revenue ?? 0);
+    }
+    return DAYS.map((day) => ({ day, revenue: Math.round(dayMap[day] ?? 0) }));
+  }, [data]);
 
-  // Data context line
+  const compData = useMemo(() => {
+    const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
+    const sorted = Object.entries(revByCategory)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, value]) => ({ name, value: Math.round(value) }));
+    return topNWithOther(sorted, 5, "value", "name");
+  }, [data]);
+
   const dateRange = useMemo(() => {
     const dates = data.map((r) => r.date).filter(Boolean).sort();
     if (dates.length === 0) return "";
@@ -47,8 +107,6 @@ const BehaviourPage = () => {
     return first === last ? first : `${first} \u2013 ${last}`;
   }, [data]);
 
-  // Key finding: peak trading day
-  const FULL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const keyFinding = useMemo(() => {
     const totalTransactions = dayData.reduce((s, d) => s + d.revenue, 0);
     if (totalTransactions === 0) return null;
@@ -56,8 +114,10 @@ const BehaviourPage = () => {
     const peakIdx = DAYS.indexOf(peak.day);
     const dayName = peakIdx >= 0 ? FULL_DAYS[peakIdx] : peak.day;
     const pct = ((peak.revenue / totalTransactions) * 100).toFixed(1);
-    return `Peak trading day: ${dayName} generates ${pct}% of transactions`;
+    return `Peak trading day: ${dayName} generates ${pct}% of revenue`;
   }, [dayData]);
+
+  // ── AI Segment generation ──
 
   const generateSegments = async () => {
     setSegLoading(true);
@@ -74,41 +134,37 @@ const BehaviourPage = () => {
 
 Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${summary}`,
       }],
-      context: "insights",
+      context: "segmentation",
       onDelta: (t) => { full += t; },
       onDone: () => {
-        const segs = full.split("\n").filter((l) => l.includes("**")).map((l) => {
-          const match = l.match(/\*\*(.+?)\*\*[:\s]*(.+)/);
-          return match ? { title: match[1], desc: match[2] } : null;
-        }).filter(Boolean) as { title: string; desc: string }[];
-        setSegments(segs.length > 0 ? segs : [{ title: "Analysis", desc: full }]);
+        const segs = parseSegmentBlocks(full);
+        setSegments(segs.length > 0 ? segs : [{ title: "Analysis", desc: full, activation: "" }]);
         setSegLoading(false);
       },
-      onError: () => { setSegments([{ title: "Error", desc: "Unable to generate segments." }]); setSegLoading(false); },
+      onError: () => { setSegments([{ title: "Error", desc: "Unable to generate segments.", activation: "" }]); setSegLoading(false); },
     });
   };
+
+  // ── Render ──
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
   if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Behaviour</h1>
-        <p className="text-muted-foreground text-sm">Behavioural intelligence — understanding the nudges that drive purchase decisions.</p>
-        {hasData && dateRange && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {data.length.toLocaleString()} transactions &middot; {dateRange}
+      {/* Header row */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Behaviour</h1>
+          <p className="text-muted-foreground text-sm">
+            Behavioural intelligence — understanding the nudges that drive purchase decisions.
           </p>
-        )}
-      </div>
-      {keyFinding && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
-          <Lightbulb className="h-4 w-4 text-accent shrink-0" />
-          <span className="text-foreground/80">{keyFinding}</span>
+          {dateRange && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {data.length.toLocaleString()} transactions &middot; {dateRange}
+            </p>
+          )}
         </div>
-      )}
-      <div className="flex items-center gap-3">
         <ExportCsvButton
           filename="Behaviour"
           headers={["Metric", "Dimension", "Revenue"]}
@@ -119,10 +175,22 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
         />
       </div>
 
+      {/* Key Finding */}
+      {keyFinding && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
+          <Lightbulb className="h-4 w-4 text-accent shrink-0" />
+          <span className="text-foreground/80">{keyFinding}</span>
+        </div>
+      )}
+
+      {/* Charts — 2-column grid */}
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Order Composition */}
         <Card className="glass-card">
-          <CardHeader><CardTitle className="font-display text-base">Order Composition</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="font-display text-base">Order Composition</CardTitle>
+            <CardDescription className="text-xs">Revenue share by product category</CardDescription>
+          </CardHeader>
           <CardContent className="flex justify-center">
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <PieChart>
@@ -139,7 +207,10 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
 
         {/* Sales by Day of Week */}
         <Card className="glass-card">
-          <CardHeader><CardTitle className="font-display text-base">Sales Distribution by Day of Week</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="font-display text-base">Sales by Day of Week</CardTitle>
+            <CardDescription className="text-xs">Revenue distribution across trading days</CardDescription>
+          </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
               <BarChart data={dayData}>
@@ -156,30 +227,61 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
         </Card>
       </div>
 
-      {/* Customer Segments */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-4">
+      {/* Customer Segments — AI powered */}
+      <Card className="glass-card border-accent/10">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-accent" />
-              <h3 className="font-display text-sm font-bold">Customer Segments — SignalStack Intelligence</h3>
+              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-accent" />
+              </div>
+              <div>
+                <CardTitle className="font-display text-base">Customer Segments</CardTitle>
+                <CardDescription className="text-xs">AI-powered behavioural segmentation</CardDescription>
+              </div>
             </div>
-            <Button size="sm" variant="outline" onClick={generateSegments} disabled={segLoading} className="text-xs">
-              {segLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-              Generate Segments
+            <Button size="sm" variant="outline" onClick={generateSegments} disabled={segLoading} className="text-xs gap-1.5">
+              {segLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {segLoading ? "Analysing..." : "Generate Segments"}
             </Button>
           </div>
+        </CardHeader>
+        <CardContent>
           {segments.length > 0 ? (
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="space-y-3">
               {segments.map((seg, i) => (
-                <div key={i} className="border-l-3 border-accent bg-accent/5 rounded-r-lg p-4">
-                  <p className="font-display text-sm font-bold mb-1">{seg.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{seg.desc}</p>
+                <div key={i} className="rounded-lg border border-border/50 bg-card/50 p-4 transition-colors hover:bg-accent/5">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 h-7 w-7 shrink-0 rounded-lg bg-accent/10 flex items-center justify-center">
+                      <span className="text-xs font-bold text-accent">{i + 1}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display text-sm font-semibold mb-1.5">{seg.title}</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{seg.desc}</p>
+                      {seg.activation && (
+                        <div className="mt-3 pt-3 border-t border-border/30">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <TrendingUp className="h-3 w-3 text-accent/70" />
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-accent/70">Activation</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{seg.activation}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Click "Generate Segments" to identify customer behavioural patterns.</p>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="h-12 w-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
+                <Users className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground/70 mb-1">No segments generated yet</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Click "Generate Segments" to identify customer behavioural patterns using AI-powered analysis.
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>

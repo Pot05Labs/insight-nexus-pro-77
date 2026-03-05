@@ -95,7 +95,6 @@ const InsightsPage = () => {
       .from("projects")
       .select("id")
       .eq("user_id", user.id)
-      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1);
     const projectId = projects?.[0]?.id;
@@ -235,17 +234,28 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
           // Extract JSON from response (handle markdown code blocks)
           const jsonStr = full.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
           const parsed = JSON.parse(jsonStr) as ReportContent;
-          setReport(parsed);
 
-          // Persist the report to narrative_reports
-          const ids = await getProjectId();
-          if (ids) {
-            await supabase.from("narrative_reports").insert({
-              user_id: ids.userId,
-              project_id: ids.projectId,
-              content: parsed,
-              report_type: "strategic_insights",
-            });
+          // Don't persist stale "no data" reports
+          if (parsed.executive_summary?.toLowerCase().includes("no data available")) {
+            setReport(null);
+          } else {
+            setReport(parsed);
+
+            // Persist the report to narrative_reports
+            const ids = await getProjectId();
+            if (ids) {
+              // Delete any previous stale reports before inserting new one
+              await supabase.from("narrative_reports").delete()
+                .eq("user_id", ids.userId)
+                .eq("project_id", ids.projectId)
+                .eq("report_type", "strategic_insights");
+              await supabase.from("narrative_reports").insert({
+                user_id: ids.userId,
+                project_id: ids.projectId,
+                content: parsed,
+                report_type: "strategic_insights",
+              });
+            }
           }
         } catch {
           // Fallback: display as executive summary
