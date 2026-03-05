@@ -439,14 +439,20 @@ const UploadPage = () => {
     const pending = files.filter((f) => f.status === "pending");
     let failCount = 0;
 
-    for (const f of pending) {
-      try {
-        await uploadFile(f);
-      } catch (err) {
-        failCount++;
-        console.error(`[uploadAll] Failed to upload ${f.file.name}:`, err);
-        updateFile(f.id, { status: "error", error: String(err) });
-      }
+    // Process files in concurrent waves of 3 for enterprise-speed uploads
+    const UPLOAD_CONCURRENCY = 3;
+    for (let w = 0; w < pending.length; w += UPLOAD_CONCURRENCY) {
+      const wave = pending.slice(w, w + UPLOAD_CONCURRENCY);
+      const results = await Promise.allSettled(wave.map(async (f) => {
+        try {
+          await uploadFile(f);
+        } catch (err) {
+          console.error(`[uploadAll] Failed to upload ${f.file.name}:`, err);
+          updateFile(f.id, { status: "error", error: String(err) });
+          throw err;
+        }
+      }));
+      failCount += results.filter(r => r.status === "rejected").length;
     }
 
     // Run learning pipeline ONCE after all files are done (not per-file)
@@ -513,6 +519,10 @@ const UploadPage = () => {
         const projectId = projects?.[0]?.id;
         if (projectId) {
           await supabase.from("computed_metrics").delete().eq("project_id", projectId);
+          // Re-run learning pipeline so AI memory reflects surviving data
+          runLearningPipeline(projectId, user.id).catch((err) =>
+            console.warn("[UploadPage] Post-delete learning pipeline failed:", err)
+          );
         }
       }
 

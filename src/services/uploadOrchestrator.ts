@@ -248,6 +248,7 @@ export async function orchestrateUpload(
   onProgress({ percent: 40, stage: `Inserting ${dataRows.length.toLocaleString()} rows...` });
 
   const BATCH_SIZE = 500;
+  const CONCURRENCY = 3; // Run 3 batch inserts in parallel — 3x faster
   const isSellOut = mapping.dataType === "sell_out" || mapping.dataType === "mixed";
   const isCampaign = mapping.dataType === "campaign" || mapping.dataType === "mixed";
 
@@ -261,42 +262,59 @@ export async function orchestrateUpload(
     console.log(`[orchestrator] Sample sell-out record:`, JSON.stringify(sampleTransformed));
   }
 
+  // Build all batches upfront, then process in parallel waves
+  const batches: { start: number; rows: Record<string, string>[] }[] = [];
   for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
-    const batch = dataRows.slice(i, i + BATCH_SIZE);
+    batches.push({ start: i, rows: dataRows.slice(i, i + BATCH_SIZE) });
+  }
 
-    if (isSellOut) {
-      const records = batch.map(row =>
-        toSellOutRecord(row, mapping, uploadId, userId, projectId!, sourceName)
-      );
-      audit.attemptedInserts += records.length;
+  let insertedSoFar = 0;
 
-      const { error } = await supabase.from("sell_out_data").insert(records as any);
-      if (error) {
-        audit.failedInserts += records.length;
-        audit.failedBatches.push(`sell_out batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
-      } else {
-        audit.successfulInserts += records.length;
+  for (let w = 0; w < batches.length; w += CONCURRENCY) {
+    const wave = batches.slice(w, w + CONCURRENCY);
+
+    const promises = wave.map(async ({ start, rows: batch }) => {
+      const batchNum = Math.floor(start / BATCH_SIZE) + 1;
+
+      if (isSellOut) {
+        const records = batch.map(row =>
+          toSellOutRecord(row, mapping, uploadId, userId, projectId!, sourceName)
+        );
+        audit.attemptedInserts += records.length;
+
+        const { error } = await supabase.from("sell_out_data").insert(records as any);
+        if (error) {
+          audit.failedInserts += records.length;
+          audit.failedBatches.push(`sell_out batch ${batchNum}: ${error.message}`);
+        } else {
+          audit.successfulInserts += records.length;
+        }
       }
-    }
 
-    if (isCampaign) {
-      const records = batch.map(row =>
-        toCampaignRecord(row, mapping, uploadId, userId, projectId!, ext)
-      );
-      audit.attemptedInserts += records.length;
+      if (isCampaign) {
+        const records = batch.map(row =>
+          toCampaignRecord(row, mapping, uploadId, userId, projectId!, ext)
+        );
+        audit.attemptedInserts += records.length;
 
-      const { error } = await supabase.from("campaign_data_v2").insert(records as any);
-      if (error) {
-        audit.failedInserts += records.length;
-        audit.failedBatches.push(`campaign batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
-      } else {
-        audit.successfulInserts += records.length;
+        const { error } = await supabase.from("campaign_data_v2").insert(records as any);
+        if (error) {
+          audit.failedInserts += records.length;
+          audit.failedBatches.push(`campaign batch ${batchNum}: ${error.message}`);
+        } else {
+          audit.successfulInserts += records.length;
+        }
       }
-    }
 
-    // Progress
-    const pct = 40 + Math.round(((i + batch.length) / dataRows.length) * 45);
-    onProgress({ percent: pct, stage: `Inserted ${Math.min(i + BATCH_SIZE, dataRows.length).toLocaleString()} of ${dataRows.length.toLocaleString()} rows` });
+      return batch.length;
+    });
+
+    const results = await Promise.all(promises);
+    insertedSoFar += results.reduce((s, n) => s + n, 0);
+
+    // Progress — update once per wave, not per batch
+    const pct = 40 + Math.round((insertedSoFar / dataRows.length) * 45);
+    onProgress({ percent: pct, stage: `Inserted ${insertedSoFar.toLocaleString()} of ${dataRows.length.toLocaleString()} rows` });
   }
 
   // ══════════════════════════════════════════════════

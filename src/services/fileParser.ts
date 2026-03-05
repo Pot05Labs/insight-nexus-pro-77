@@ -147,53 +147,79 @@ export async function parseXLSX(file: File): Promise<ParsedFile> {
     throw new Error("Workbook has no sheets.");
   }
 
-  if (workbook.SheetNames.length > 1) {
-    warnings.push(`Workbook has ${workbook.SheetNames.length} sheets. Using first sheet: "${workbook.SheetNames[0]}".`);
-  }
+  // Process ALL sheets — enterprise workbooks often have one sheet per retailer/region/month
+  let masterHeaders: string[] = [];
+  const allRows: Record<string, string>[] = [];
+  let sheetsUsed = 0;
 
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
-  const totalDataRows = range.e.r; // 0-indexed, so this is the count of data rows (excluding header)
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet || !sheet["!ref"]) {
+      warnings.push(`Sheet "${sheetName}" is empty — skipped.`);
+      continue;
+    }
 
-  // Convert to JSON with raw values, all as strings
-  const jsonRows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, {
-    defval: "",      // empty cells become ""
-    raw: true,       // raw values
-    dateNF: "yyyy-mm-dd",  // date format hint
-  });
+    const jsonRows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, {
+      defval: "",
+      raw: true,
+      dateNF: "yyyy-mm-dd",
+    });
 
-  if (jsonRows.length === 0) {
-    throw new Error("Sheet has no data rows.");
-  }
+    if (jsonRows.length === 0) {
+      warnings.push(`Sheet "${sheetName}" has no data rows — skipped.`);
+      continue;
+    }
 
-  // Get headers
-  const headers = Object.keys(jsonRows[0]);
+    const sheetHeaders = Object.keys(jsonRows[0]);
 
-  // Convert ALL values to strings for consistency
-  const rows: Record<string, string>[] = jsonRows.map(row => {
-    const strRow: Record<string, string> = {};
-    for (const h of headers) {
-      const val = row[h];
-      if (val === null || val === undefined) {
-        strRow[h] = "";
-      } else if (val instanceof Date) {
-        strRow[h] = val.toISOString().split("T")[0];
-      } else {
-        strRow[h] = String(val);
+    // First sheet with data sets the master headers
+    if (masterHeaders.length === 0) {
+      masterHeaders = sheetHeaders;
+    } else {
+      // Check if this sheet's headers are compatible (≥50% overlap with master)
+      const overlap = sheetHeaders.filter(h => masterHeaders.includes(h)).length;
+      const overlapPct = overlap / Math.max(masterHeaders.length, 1);
+      if (overlapPct < 0.5) {
+        warnings.push(`Sheet "${sheetName}" has incompatible columns (${Math.round(overlapPct * 100)}% overlap) — skipped.`);
+        continue;
+      }
+      // Add any new columns from this sheet
+      for (const h of sheetHeaders) {
+        if (!masterHeaders.includes(h)) masterHeaders.push(h);
       }
     }
-    return strRow;
-  });
 
-  // Audit: check row count matches
-  if (rows.length !== jsonRows.length) {
-    warnings.push(`Row count mismatch: xlsx library returned ${jsonRows.length}, string conversion produced ${rows.length}.`);
+    // Convert to string rows, aligned to master headers
+    for (const row of jsonRows) {
+      const strRow: Record<string, string> = {};
+      for (const h of masterHeaders) {
+        const val = row[h];
+        if (val === null || val === undefined) {
+          strRow[h] = "";
+        } else if (val instanceof Date) {
+          strRow[h] = val.toISOString().split("T")[0];
+        } else {
+          strRow[h] = String(val);
+        }
+      }
+      allRows.push(strRow);
+    }
+
+    sheetsUsed++;
+  }
+
+  if (allRows.length === 0) {
+    throw new Error("No data rows found in any sheet.");
+  }
+
+  if (sheetsUsed > 1) {
+    warnings.push(`Merged ${sheetsUsed} sheets (${workbook.SheetNames.length} total) into ${allRows.length.toLocaleString()} rows.`);
   }
 
   return {
-    headers,
-    rows,
-    rowCount: rows.length,
+    headers: masterHeaders,
+    rows: allRows,
+    rowCount: allRows.length,
     fileType: "xlsx",
     warnings,
   };
@@ -351,8 +377,24 @@ export type ParseResult =
   | { type: "tabular"; data: ParsedFile }
   | { type: "presentation"; data: ParsedPPTX };
 
+// Maximum file sizes for browser-side parsing (beyond these, tab will crash)
+const MAX_FILE_SIZE_MB: Record<string, number> = {
+  csv: 100,   // ~500K rows
+  tsv: 100,
+  txt: 100,
+  tab: 100,
+  xlsx: 80,   // XLSX expands ~3-5x in memory
+  xls: 80,
+  pptx: 50,
+};
+
 export async function parseFile(file: File): Promise<ParseResult> {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const limitMB = MAX_FILE_SIZE_MB[ext] ?? 50;
+  const fileMB = file.size / (1024 * 1024);
+  if (fileMB > limitMB) {
+    throw new Error(`File too large (${fileMB.toFixed(1)} MB). Maximum for .${ext} files is ${limitMB} MB. Split into smaller files or contact support.`);
+  }
 
   switch (ext) {
     case "csv":

@@ -27,9 +27,10 @@ async function fetchCampaignData(): Promise<CampaignRow[]> {
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 
-  // Paginate to retrieve ALL campaign rows (no arbitrary limit).
+  // Paginate with safety cap to prevent browser freezes on large datasets.
   // PAGE_SIZE must be <= Supabase PostgREST max_rows (default 1000).
   const PAGE_SIZE = 1000;
+  const MAX_ROWS = 10_000;
   let allRows: CampaignRow[] = [];
   let offset = 0;
   let hasMore = true;
@@ -49,6 +50,12 @@ async function fetchCampaignData(): Promise<CampaignRow[]> {
 
     const rows = (data as CampaignRow[]) ?? [];
     allRows = allRows.concat(rows);
+
+    if (allRows.length >= MAX_ROWS) {
+      console.warn(`[useCampaignData] Capped at ${MAX_ROWS} rows. Dashboard will use this subset for visualisation.`);
+      break;
+    }
+
     offset += PAGE_SIZE;
     hasMore = rows.length === PAGE_SIZE;
   }

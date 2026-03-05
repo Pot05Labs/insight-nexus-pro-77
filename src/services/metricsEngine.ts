@@ -61,9 +61,10 @@ function aggregate(
 /* ------------------------------------------------------------------ */
 
 async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics | null> {
-  // Paginate to fetch ALL sell-out rows (no hard limit).
+  // Paginate with safety cap to prevent browser freezes on enterprise datasets.
   // PAGE_SIZE must be <= Supabase PostgREST max_rows (default 1000).
   const PAGE_SIZE = 1000;
+  const MAX_ROWS = 10_000;
   let data: Record<string, unknown>[] = [];
   let offset = 0;
   let hasMore = true;
@@ -83,6 +84,12 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
     }
     const rows = (page ?? []) as Record<string, unknown>[];
     data = data.concat(rows);
+
+    if (data.length >= MAX_ROWS) {
+      console.warn(`[metricsEngine] Sell-out capped at ${MAX_ROWS} rows for metrics computation.`);
+      break;
+    }
+
     offset += PAGE_SIZE;
     hasMore = rows.length === PAGE_SIZE;
   }
@@ -136,9 +143,10 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
 /* ------------------------------------------------------------------ */
 
 async function computeCampaignMetrics(projectId: string): Promise<CampaignMetrics | null> {
-  // Paginate to fetch ALL campaign rows (no hard limit).
+  // Paginate with safety cap to prevent browser freezes on enterprise datasets.
   // PAGE_SIZE must be <= Supabase PostgREST max_rows (default 1000).
   const PAGE_SIZE = 1000;
+  const MAX_ROWS = 10_000;
   let data: Record<string, unknown>[] = [];
   let offset = 0;
   let hasMore = true;
@@ -158,6 +166,12 @@ async function computeCampaignMetrics(projectId: string): Promise<CampaignMetric
     }
     const rows = (page ?? []) as Record<string, unknown>[];
     data = data.concat(rows);
+
+    if (data.length >= MAX_ROWS) {
+      console.warn(`[metricsEngine] Campaign capped at ${MAX_ROWS} rows for metrics computation.`);
+      break;
+    }
+
     offset += PAGE_SIZE;
     hasMore = rows.length === PAGE_SIZE;
   }

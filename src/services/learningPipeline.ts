@@ -35,7 +35,15 @@ export async function runLearningPipeline(projectId: string, userId: string): Pr
   try {
     // Step 1: Build data profile from sell_out_data
     const profile = await buildDataProfile(projectId);
-    if (!profile) return;
+    if (!profile) {
+      // No data left — clear stale intelligence so AI doesn't reference deleted data
+      await (supabase as any)
+        .from("client_intelligence")
+        .delete()
+        .eq("project_id", projectId);
+      console.info("[LearningPipeline] No data remaining — intelligence cleared for project:", projectId);
+      return;
+    }
 
     // Step 2: Upsert data_profile intelligence
     await upsertIntelligence(userId, projectId, "data_profile", profile, 0.9, profile.rowCount);
@@ -65,11 +73,24 @@ export async function runLearningPipeline(projectId: string, userId: string): Pr
 }
 
 async function buildDataProfile(projectId: string): Promise<DataProfile | null> {
+  // Get exact row count without transferring data (server-side HEAD request)
+  const { count: totalRows } = await supabase
+    .from("sell_out_data")
+    .select("*", { count: "exact", head: true })
+    .eq("project_id", projectId)
+    .is("deleted_at", null);
+
+  if (!totalRows || totalRows === 0) return null;
+
+  // Cap rows pulled into browser — 10K is enough for profiling dimensions + approximate totals
+  const PROFILE_CAP = 10_000;
   const { data: rows } = await supabase
     .from("sell_out_data")
     .select("date, retailer, brand, category, product_name_raw, revenue, units_sold")
     .eq("project_id", projectId)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .order("date", { ascending: false })
+    .limit(PROFILE_CAP);
 
   if (!rows || rows.length === 0) return null;
 
@@ -78,18 +99,21 @@ async function buildDataProfile(projectId: string): Promise<DataProfile | null> 
   const brands = [...new Set(rows.map((r) => r.brand).filter(Boolean))];
   const categories = [...new Set(rows.map((r) => r.category).filter(Boolean))];
   const uniqueProducts = new Set(rows.map((r) => r.product_name_raw).filter(Boolean)).size;
-  const totalRevenue = rows.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
-  const totalUnits = rows.reduce((s, r) => s + Number(r.units_sold ?? 0), 0);
+  const sampleRevenue = rows.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const sampleUnits = rows.reduce((s, r) => s + Number(r.units_sold ?? 0), 0);
+
+  // Scale totals proportionally if we sampled a subset
+  const scaleFactor = totalRows > rows.length ? totalRows / rows.length : 1;
 
   return {
     dateRange: { min: dates[0] ?? "", max: dates[dates.length - 1] ?? "" },
     retailers: retailers as string[],
     brands: brands as string[],
     categories: categories as string[],
-    totalRevenue: Math.round(totalRevenue),
-    totalUnits: Math.round(totalUnits),
+    totalRevenue: Math.round(sampleRevenue * scaleFactor),
+    totalUnits: Math.round(sampleUnits * scaleFactor),
     uniqueProducts,
-    rowCount: rows.length,
+    rowCount: totalRows,
   };
 }
 
@@ -216,7 +240,9 @@ async function buildCampaignProfile(projectId: string): Promise<Record<string, u
     .from("campaign_data_v2")
     .select("platform, campaign_name, spend, impressions, clicks, conversions, revenue, flight_start")
     .eq("project_id", projectId)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .order("flight_start", { ascending: false })
+    .limit(10_000);
 
   if (!rows || rows.length === 0) return null;
 

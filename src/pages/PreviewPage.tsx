@@ -52,12 +52,14 @@ const PreviewPage = () => {
 
       setSampleRows(rows ?? []);
 
-      // Fetch ALL rows (lightweight columns only) for accurate aggregate KPIs
+      // Fetch rows (lightweight columns only) for aggregate KPIs — capped for performance
       const { data: allRows } = await supabase
         .from("sell_out_data")
         .select("revenue, units_sold, product_name_raw, sku, retailer")
         .eq("user_id", user.id)
-        .is("deleted_at", null);
+        .is("deleted_at", null)
+        .order("date", { ascending: false })
+        .limit(10_000);
 
       if (allRows && allRows.length > 0) {
         setAggregateStats({
