@@ -94,13 +94,46 @@ const UploadPage = () => {
       .from("data_uploads")
       .select("id, file_name, file_type, file_size, source_name, source_type, status, created_at, row_count, storage_path")
       .eq("user_id", user.id)
-      .neq("status", "archived")
       .order("created_at", { ascending: false });
     setExistingUploads(data ?? []);
     setLoadingUploads(false);
   };
 
-  useEffect(() => { fetchUploads(); }, []);
+  // Purge any legacy archived/soft-deleted data that accumulated before hard-delete was enabled
+  const purgeArchivedData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    try {
+      // Remove archived upload records and their associated data + storage files
+      const { data: archived } = await supabase
+        .from("data_uploads")
+        .select("id, storage_path")
+        .eq("user_id", user.id)
+        .eq("status", "archived");
+
+      if (archived && archived.length > 0) {
+        console.log(`[UploadPage] Purging ${archived.length} archived uploads`);
+        for (const row of archived) {
+          await supabase.from("sell_out_data").delete().eq("upload_id", row.id);
+          await supabase.from("campaign_data_v2").delete().eq("upload_id", row.id);
+          await supabase.from("data_uploads").delete().eq("id", row.id);
+          if (row.storage_path) {
+            await supabase.storage.from("uploads").remove([row.storage_path]).catch(() => {});
+          }
+        }
+      }
+
+      // Purge orphaned soft-deleted rows in data tables (deleted_at IS NOT NULL)
+      await supabase.from("sell_out_data").delete().eq("user_id", user.id).not("deleted_at", "is", null);
+      await supabase.from("campaign_data_v2").delete().eq("user_id", user.id).not("deleted_at", "is", null);
+      await supabase.from("computed_metrics").delete().eq("user_id", user.id).not("deleted_at", "is", null);
+      await supabase.from("narrative_reports").delete().eq("user_id", user.id).not("deleted_at", "is", null);
+    } catch (err) {
+      console.warn("[UploadPage] Purge archived data failed:", err);
+    }
+  };
+
+  useEffect(() => { fetchUploads(); purgeArchivedData(); }, []);
 
   const fileTypeIcon = (fileName: string) => {
     const ext = getFileExtension(fileName);
@@ -352,24 +385,25 @@ const UploadPage = () => {
       return;
     }
 
-    // Check for duplicate upload — archive old data if re-uploading same file
+    // Check for duplicate upload — delete old data if re-uploading same file
     const { data: existingDups } = await supabase
       .from("data_uploads")
-      .select("id, file_name, created_at, row_count")
+      .select("id, file_name, created_at, row_count, storage_path")
       .eq("user_id", session.user.id)
-      .eq("file_name", uf.file.name)
-      .neq("status", "archived");
+      .eq("file_name", uf.file.name);
 
     if (existingDups && existingDups.length > 0) {
       toast({
         title: "Duplicate file detected",
-        description: `${uf.file.name} was previously uploaded (${existingDups[0].row_count ?? 0} rows). The old data will be archived.`,
+        description: `${uf.file.name} was previously uploaded (${existingDups[0].row_count ?? 0} rows). The old data will be deleted.`,
       });
-      const now = new Date().toISOString();
       for (const dup of existingDups) {
-        await supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", dup.id);
-        await supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", dup.id);
-        await supabase.from("data_uploads").update({ status: "archived" } as any).eq("id", dup.id);
+        await supabase.from("sell_out_data").delete().eq("upload_id", dup.id);
+        await supabase.from("campaign_data_v2").delete().eq("upload_id", dup.id);
+        await supabase.from("data_uploads").delete().eq("id", dup.id);
+        if (dup.storage_path) {
+          await supabase.storage.from("uploads").remove([dup.storage_path]).catch(() => {});
+        }
       }
     }
 
@@ -446,24 +480,29 @@ const UploadPage = () => {
     setDeleting(true);
 
     try {
-      const now = new Date().toISOString();
-      // Soft-delete related data — check for errors
+      // Hard-delete related data rows
       const [soResult, cpResult] = await Promise.all([
-        supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", deleteTarget.id),
-        supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", deleteTarget.id),
+        supabase.from("sell_out_data").delete().eq("upload_id", deleteTarget.id),
+        supabase.from("campaign_data_v2").delete().eq("upload_id", deleteTarget.id),
       ]);
 
       if (soResult.error) {
-        console.error("[UploadPage] sell_out_data soft-delete failed:", soResult.error.message);
-        throw new Error(`Failed to archive sell-out data: ${soResult.error.message}`);
+        console.error("[UploadPage] sell_out_data delete failed:", soResult.error.message);
+        throw new Error(`Failed to delete sell-out data: ${soResult.error.message}`);
       }
       if (cpResult.error) {
-        console.error("[UploadPage] campaign_data_v2 soft-delete failed:", cpResult.error.message);
-        throw new Error(`Failed to archive campaign data: ${cpResult.error.message}`);
+        console.error("[UploadPage] campaign_data_v2 delete failed:", cpResult.error.message);
+        throw new Error(`Failed to delete campaign data: ${cpResult.error.message}`);
       }
 
-      // Archive upload record (soft delete)
-      await supabase.from("data_uploads").update({ status: "archived" } as any).eq("id", deleteTarget.id);
+      // Delete upload record
+      await supabase.from("data_uploads").delete().eq("id", deleteTarget.id);
+
+      // Remove file from storage
+      if (deleteTarget.storage_path) {
+        const { error: storageErr } = await supabase.storage.from("uploads").remove([deleteTarget.storage_path]);
+        if (storageErr) console.warn("[UploadPage] Storage cleanup failed:", storageErr.message);
+      }
 
       // Clear stale computed_metrics so dashboard recomputes from surviving data
       const { data: { user } } = await supabase.auth.getUser();
@@ -473,12 +512,11 @@ const UploadPage = () => {
           .order("created_at", { ascending: false }).limit(1);
         const projectId = projects?.[0]?.id;
         if (projectId) {
-          await supabase.from("computed_metrics")
-            .update({ deleted_at: now } as any).eq("project_id", projectId);
+          await supabase.from("computed_metrics").delete().eq("project_id", projectId);
         }
       }
 
-      toast({ title: "File archived", description: `${deleteTarget.file_name} and related data archived.` });
+      toast({ title: "File deleted", description: `${deleteTarget.file_name} and all related data permanently removed.` });
       // Invalidate caches after deletion
       queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
       queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
@@ -824,11 +862,10 @@ const UploadPage = () => {
                                 const { data: { session } } = await supabase.auth.getSession();
                                 if (!session) { setRetrying(null); return; }
                                 try {
-                                  // Soft-delete old data before reprocessing — check errors
-                                  const now = new Date().toISOString();
+                                  // Hard-delete old data before reprocessing
                                   const [soR, cpR] = await Promise.all([
-                                    supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", u.id),
-                                    supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", u.id),
+                                    supabase.from("sell_out_data").delete().eq("upload_id", u.id),
+                                    supabase.from("campaign_data_v2").delete().eq("upload_id", u.id),
                                   ]);
                                   if (soR.error) throw new Error(soR.error.message);
                                   if (cpR.error) throw new Error(cpR.error.message);

@@ -234,7 +234,6 @@ export async function hasDemoData(): Promise<boolean> {
     .from("data_uploads")
     .select("id")
     .eq("source_name", "SignalStack Demo")
-    .neq("status", "archived")
     .limit(1);
   return (data?.length ?? 0) > 0;
 }
