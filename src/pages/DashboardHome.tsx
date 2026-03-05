@@ -15,6 +15,7 @@ import {
 import { BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import ExportPptxButton from "@/components/ExportPptxButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import KpiCard from "@/components/KpiCard";
@@ -29,6 +30,7 @@ import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, LINE_COLORS, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import DataQualityPanel from "@/components/DataQualityPanel";
+import ShareOfVoicePanel from "@/components/ShareOfVoicePanel";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Helpers for Key Findings ──
@@ -334,6 +336,62 @@ const DashboardHome = () => {
     return findings.slice(0, 5);
   }, [data, hasData, totalRevenue, categoryDataRaw, monthMapRevenue]);
 
+  // ── PPTX Export Data ──
+  const pptxData = useMemo(() => {
+    // Retailer breakdown (computed here to avoid depending on keyFindings internals)
+    const revByRetailer = aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
+    const retailerBreakdown = Object.entries(revByRetailer)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([name, rev]) => ({
+        name,
+        value: fmtZAR(rev),
+        percentage: totalRevenue > 0 ? `${((rev / totalRevenue) * 100).toFixed(1)}%` : undefined,
+      }));
+
+    // Campaign table from attribution results
+    const campaignTable = attributionResults.slice(0, 10).map((r) => ({
+      name: r.campaign_name,
+      spend: fmtZAR(r.spend),
+      revenue: fmtZAR(r.flightRevenue),
+      roas: r.incrementalROAS > 0 ? `${r.incrementalROAS.toFixed(1)}x` : "\u2014",
+    }));
+
+    // Date range subtitle
+    const dates = data.map((r) => r.date).filter(Boolean) as string[];
+    dates.sort();
+    let subtitle: string | undefined;
+    if (dates.length > 0) {
+      const minLabel = formatMonthLabel(dates[0].slice(0, 7));
+      const maxLabel = formatMonthLabel(dates[dates.length - 1].slice(0, 7));
+      subtitle = minLabel === maxLabel ? minLabel : `${minLabel} \u2013 ${maxLabel}`;
+    }
+
+    return {
+      title: "Dashboard Report",
+      subtitle,
+      kpis: [
+        { label: "Total Revenue", value: fmtZAR(totalRevenue) },
+        { label: "Units Sold", value: totalUnits.toLocaleString() },
+        { label: "Avg Order Value", value: fmtZAR(avgOrderValue) },
+        { label: "Unique Products", value: uniqueProducts.toString() },
+        ...(hasCampaigns
+          ? [
+              { label: "Total Ad Spend", value: fmtZAR(totalSpend) },
+              { label: "ROAS", value: roas > 0 ? `${roas.toFixed(1)}x` : "\u2014" },
+            ]
+          : []),
+      ],
+      breakdownTitle: "Revenue by Retailer",
+      breakdown: retailerBreakdown.length > 0 ? retailerBreakdown : undefined,
+      campaignTable: campaignTable.length > 0 ? campaignTable : undefined,
+      findings: keyFindings.length > 0 ? keyFindings.map((f) => f.text) : undefined,
+    };
+  }, [
+    data, totalRevenue, totalUnits, avgOrderValue, uniqueProducts,
+    hasCampaigns, totalSpend, roas, attributionResults, keyFindings,
+  ]);
+
   // ── Chart Insight Annotations ──
   const revenueSpendAnnotation = useMemo(() => {
     if (totalSpend > 0 && roas > 0) {
@@ -483,6 +541,7 @@ const DashboardHome = () => {
               ["Cost per Sale", cps],
             ]}
           />
+          <ExportPptxButton filename="Dashboard" data={pptxData} />
           <ExportPdfButton targetRef={reportRef} filename="SignalStack-Dashboard" />
         </div>
       </div>
@@ -636,6 +695,9 @@ const DashboardHome = () => {
                 </CardContent>
               </Card>
             )}
+
+            {/* ── 6b. SHARE OF VOICE ── */}
+            {hasData && <ShareOfVoicePanel data={data} />}
 
             {/* ── 7. CAMPAIGN SECTION (visually separated) ── */}
             {(hasCampaigns || campaignLoading) && (
