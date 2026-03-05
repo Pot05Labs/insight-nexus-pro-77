@@ -32,6 +32,7 @@ import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import DataQualityPanel from "@/components/DataQualityPanel";
 import ShareOfVoicePanel from "@/components/ShareOfVoicePanel";
 import { useToast } from "@/hooks/use-toast";
+import { buildDashboardSummary } from "@/services/insightsSnapshot";
 
 // ── Helpers for Key Findings ──
 
@@ -423,61 +424,16 @@ const DashboardHome = () => {
 
   // Rich multi-section data summary for AI insights
   const dataSummary = useMemo(() => {
-    const sections: string[] = [];
-
-    // Sell-out summary
-    if (hasData) {
-      const retailers = [...new Set(data.map(r => r.retailer).filter(Boolean))];
-      const regions = [...new Set(data.map(r => r.region).filter(Boolean))];
-      const dateRange = data.length > 0
-        ? `${data.reduce((min, r) => r.date && r.date < min ? r.date : min, data[0]?.date ?? "")} to ${data.reduce((max, r) => r.date && r.date > max ? r.date : max, data[0]?.date ?? "")}`
-        : "N/A";
-      sections.push(
-        `[SELL-OUT PERFORMANCE]\nTotal Revenue: ${fmtZAR(totalRevenue)} | Units Sold: ${totalUnits.toLocaleString()} | AOV: ${fmtZAR(avgOrderValue)} | Unique Products: ${uniqueProducts}\nDate Range: ${dateRange}\nRetailers (${retailers.length}): ${retailers.slice(0, 8).join(", ")}${retailers.length > 8 ? ` +${retailers.length - 8} more` : ""}\nRegions: ${regions.slice(0, 9).join(", ") || "N/A"}`
-      );
-
-      // Brands
-      if (brandData.length > 0) {
-        sections.push(
-          `[TOP BRANDS BY REVENUE]\n${brandData.map((b, i) => `${i + 1}. ${b.brand}: ${fmtZAR(b.revenue)}`).join("\n")}`
-        );
-      }
-
-      // Categories
-      if (categoryData.length > 0) {
-        sections.push(
-          `[CATEGORY BREAKDOWN]\n${categoryData.map(c => `${c.category}: ${fmtZAR(c.revenue)}`).join(" | ")}`
-        );
-      }
-    }
-
-    // Campaign summary
-    if (hasCampaigns) {
-      const platforms = [...new Set(campaigns.map(c => c.platform).filter(Boolean))];
-      sections.push(
-        `[CAMPAIGN PERFORMANCE]\nTotal Ad Spend: ${fmtZAR(totalSpend)} | Impressions: ${totalImpressions.toLocaleString()} | Clicks: ${totalClicks.toLocaleString()}\nCTR: ${ctr.toFixed(2)}% | eCPM: ${fmtZAR(eCPM)} | CPC: ${fmtZAR(cpc)} | CPS: ${fmtZAR(cps)}\nROAS: ${roas.toFixed(1)}x | iROAS: ${iROAS.toFixed(1)}x\nPlatforms: ${platforms.join(", ") || "N/A"}\nConversions: ${totalConversions.toLocaleString()} | Campaign Revenue: ${fmtZAR(totalCampaignRevenue)}`
-      );
-    }
-
-    // Attribution
-    if (attributionResults.length > 0) {
-      sections.push(
-        `[CAMPAIGN ATTRIBUTION — TOP PERFORMERS]\n${attributionResults.slice(0, 5).map((r, i) => `${i + 1}. ${r.campaign_name} (${r.platform}): ${r.liftPct.toFixed(0)}% lift, ${fmtZAR(r.incrementalRevenue)} incremental revenue, ${r.incrementalROAS.toFixed(1)}x iROAS`).join("\n")}\nTotal Incremental Revenue: ${fmtZAR(totalIncrementalRevenue)}`
-      );
-    }
-
-    // Period comparison
-    if (comparison.revenue.deltaPct !== 0) {
-      sections.push(
-        `[${periodType} COMPARISON]\nRevenue: ${comparison.revenue.deltaPct > 0 ? "+" : ""}${comparison.revenue.deltaPct.toFixed(1)}% | Units: ${comparison.units.deltaPct > 0 ? "+" : ""}${comparison.units.deltaPct.toFixed(1)}% | AOV: ${comparison.aov.deltaPct > 0 ? "+" : ""}${comparison.aov.deltaPct.toFixed(1)}%`
-      );
-    }
-
-    return sections.join("\n\n");
-  }, [data, campaigns, brandData, categoryData, attributionResults, comparison, periodType,
-      totalRevenue, totalUnits, avgOrderValue, uniqueProducts, totalSpend, totalImpressions,
-      totalClicks, ctr, eCPM, cpc, cps, roas, iROAS, totalConversions, totalCampaignRevenue,
-      totalIncrementalRevenue, hasData, hasCampaigns]);
+    return (
+      buildDashboardSummary({
+        sellOutData: data,
+        campaignData: campaigns,
+        periodType,
+        comparison,
+        attributionResults,
+      })?.summary ?? ""
+    );
+  }, [data, campaigns, periodType, comparison, attributionResults]);
 
   const isLoading = loading || campaignLoading;
 

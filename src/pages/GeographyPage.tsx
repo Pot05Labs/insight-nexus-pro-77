@@ -1,26 +1,26 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Lightbulb } from "lucide-react";
+import { Lightbulb, Loader2, Wrench } from "lucide-react";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import EmptyState from "@/components/EmptyState";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
-import { inferProvince } from "@/lib/sa-store-provinces";
+import { resolveProvince, VALID_PROVINCE_SET } from "@/lib/sa-store-provinces";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
-
-// ── Constants (outside component — never recreated) ──────────────────
-
-const VALID_PROVINCES = new Set([
-  "Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape",
-  "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape",
-]);
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { buildGeographySummary } from "@/services/insightsSnapshot";
+import { repairProvinceMappings } from "@/services/provinceRepair";
+import { getCurrentProjectContext } from "@/services/projectContext";
 
 const GeographyPage = () => {
-  const { data, loading } = useSellOutData();
+  const { data, loading, refetch } = useSellOutData();
+  const { toast } = useToast();
+  const [repairing, setRepairing] = useState(false);
   const hasData = data.length > 0;
 
   // ── Pre-compute province for every row ONCE, keyed by row id ──────
@@ -29,34 +29,13 @@ const GeographyPage = () => {
     const map = new Map<string, string | null>();
 
     for (const r of data) {
-      // 1. If region field is a valid SA province, use it directly
-      if (r.region && VALID_PROVINCES.has(r.region)) {
-        map.set(r.id, r.region);
-        continue;
-      }
-
-      // 2. If region field exists but is NOT a valid province,
-      //    try to resolve it via the store-to-province lookup
-      if (r.region) {
-        const fromRegion = inferProvince(r.region);
-        if (fromRegion && VALID_PROVINCES.has(fromRegion)) {
-          map.set(r.id, fromRegion);
-          continue;
-        }
-      }
-
-      // 3. Try resolving from store_location
-      const loc = r.store_location?.trim();
-      if (loc) {
-        const fromStore = inferProvince(loc);
-        if (fromStore && VALID_PROVINCES.has(fromStore)) {
-          map.set(r.id, fromStore);
-          continue;
-        }
-      }
-
-      // 4. Cannot determine province — row excluded from geographic charts
-      map.set(r.id, null);
+      map.set(
+        r.id,
+        resolveProvince({
+          region: r.region,
+          storeLocation: r.store_location,
+        }),
+      );
     }
 
     return map;
@@ -85,7 +64,7 @@ const GeographyPage = () => {
     const revByRegion = aggregate(mappedData, (r) => getProvince(r)!, (r) => Number(r.revenue ?? 0));
     return Object.entries(revByRegion)
       // HARD FILTER: only valid SA provinces pass through (bulletproof safety gate)
-      .filter(([region]) => VALID_PROVINCES.has(region))
+      .filter(([region]) => VALID_PROVINCE_SET.has(region))
       .sort(([, a], [, b]) => b - a)
       .map(([region, revenue]) => ({ region, revenue: Math.round(revenue) }));
   }, [mappedData, rowProvinceMap]);
@@ -136,11 +115,38 @@ const GeographyPage = () => {
   }, [regionData, totalRevenue]);
 
   // ── AI data summary ───────────────────────────────────────────────
-  const dataSummary = useMemo(
-    () =>
-      `Top Stores: ${storeData.map((s) => `${s.store} (${fmtZAR(s.revenue)})`).join(", ")}. Regions: ${regionData.map((r) => `${r.region} (${fmtZAR(r.revenue)})`).join(", ")}.`,
-    [storeData, regionData],
-  );
+  const dataSummary = useMemo(() => buildGeographySummary(data)?.summary ?? "", [data]);
+
+  const handleRepairProvinceMapping = async () => {
+    setRepairing(true);
+    try {
+      const context = await getCurrentProjectContext();
+      if (!context) {
+        toast({
+          title: "No active project",
+          description: "Load a project before repairing province mappings.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const result = await repairProvinceMappings(context.projectId);
+      await refetch();
+
+      toast({
+        title: "Province mapping repaired",
+        description: `Scanned ${result.scanned} rows, updated ${result.updated}, left ${result.unresolved} unresolved, ${result.conflicts} conflicts preserved.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Repair failed",
+        description: error instanceof Error ? error.message : "Unable to repair province mappings.",
+        variant: "destructive",
+      });
+    } finally {
+      setRepairing(false);
+    }
+  };
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -163,11 +169,17 @@ const GeographyPage = () => {
             </p>
           )}
         </div>
-        <ExportCsvButton
-          filename="Geography"
-          headers={["Province", "Revenue", "Units", "AOV"]}
-          rows={provinceTable.map((r) => [r.region, r.revenue, r.units, r.aov.toFixed(2)])}
-        />
+        <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={handleRepairProvinceMapping} disabled={repairing}>
+            {repairing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Wrench className="h-4 w-4 mr-1.5" />}
+            {repairing ? "Repairing..." : "Repair Province Mapping"}
+          </Button>
+          <ExportCsvButton
+            filename="Geography"
+            headers={["Province", "Revenue", "Units", "AOV"]}
+            rows={provinceTable.map((r) => [r.region, r.revenue, r.units, r.aov.toFixed(2)])}
+          />
+        </div>
       </div>
 
       {/* Key Finding */}

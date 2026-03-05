@@ -22,6 +22,7 @@ import { useCampaignData } from "@/hooks/useCampaignData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, LINE_COLORS } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
+import { buildCampaignsSummary } from "@/services/insightsSnapshot";
 
 type SortKey = "campaign_name" | "spend" | "impressions" | "clicks" | "conversions" | "revenue" | "roas";
 
@@ -164,7 +165,15 @@ const CampaignsPage = () => {
     setPage(0);
   };
 
-  const dataSummary = `Campaign Performance: Total Spend ${fmtZAR(totalSpend)}, Impressions ${totalImpressions.toLocaleString()}, Clicks ${totalClicks.toLocaleString()}, CTR ${ctr.toFixed(2)}%, ROAS ${roas.toFixed(1)}x. Platforms: ${platformData.map((p) => `${p.platform}: ${fmtZAR(p.spend)} spend`).join(", ")}. Campaign Attribution: ${attribution.slice(0, 3).map((a) => `${a.campaign_name}: ${fmtZAR(a.incrementalRevenue)} incremental revenue, ${a.liftPct.toFixed(1)}% lift`).join("; ")}.`;
+  const filteredAttribution = useMemo(
+    () => (platformFilter === "all" ? attribution : attribution.filter((row) => row.platform === platformFilter)),
+    [attribution, platformFilter],
+  );
+
+  const dataSummary = useMemo(
+    () => buildCampaignsSummary(sellOutData, filtered, filteredAttribution)?.summary ?? "",
+    [sellOutData, filtered, filteredAttribution],
+  );
 
   // Data context line
   const uniqueCampaigns = useMemo(() => new Set(campaigns.map((c) => c.campaign_name).filter(Boolean)).size, [campaigns]);

@@ -11,6 +11,7 @@ import SignalStackInsights from "@/components/SignalStackInsights";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { streamAiChat } from "@/services/aiChatStream";
+import { buildBehaviourSummary } from "@/services/insightsSnapshot";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FULL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -116,6 +117,8 @@ const BehaviourPage = () => {
     const pct = ((peak.revenue / totalTransactions) * 100).toFixed(1);
     return `Peak trading day: ${dayName} generates ${pct}% of revenue`;
   }, [dayData]);
+
+  const dataSummary = useMemo(() => buildBehaviourSummary(data)?.summary ?? "", [data]);
 
   // ── AI Segment generation ──
 
@@ -288,7 +291,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
 
       {/* SignalStack Intelligence */}
       <SignalStackInsights
-        dataSummary={`Day-of-week revenue: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Category mix: ${compData.slice(0, 8).map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${data.length}.`}
+        dataSummary={dataSummary}
         title="Behavioural Insights"
       />
     </div>

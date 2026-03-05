@@ -11,6 +11,7 @@ import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
+import { buildProductsSummary } from "@/services/insightsSnapshot";
 
 type SortKey = "product" | "brand" | "category" | "revenue" | "units" | "avgPrice" | "marketShare";
 
@@ -95,7 +96,7 @@ const ProductsPage = () => {
 
   const hasData = data.length > 0;
 
-  const dataSummary = `Top 10 Products: ${top10.map((p) => `${p.name} (${fmtZAR(p.revenue)})`).join(", ")}. Categories: ${categoryData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Brand rankings: ${brandRankings.slice(0, 5).map((b) => `${b.brand} (${fmtZAR(b.revenue)}, ${b.marketShare.toFixed(1)}% share)`).join(", ")}. Total Revenue: ${fmtZAR(totalRevenue)}.`;
+  const dataSummary = useMemo(() => buildProductsSummary(data)?.summary ?? "", [data]);
 
   // Data context line
   const uniqueProducts = useMemo(() => new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size, [data]);

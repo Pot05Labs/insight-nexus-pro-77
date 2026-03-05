@@ -177,7 +177,7 @@ export function toText(raw: string | null | undefined): string | null {
 /* ------------------------------------------------------------------ */
 
 import type { ColumnMapping } from "./columnMapper";
-import { inferProvince } from "@/lib/sa-store-provinces";
+import { resolveProvince } from "@/lib/sa-store-provinces";
 
 /**
  * Transform a raw parsed row into a sell_out_data insert record.
@@ -208,10 +208,11 @@ export function toSellOutRecord(
   const unitsSold = toInteger(get("units_sold"));
   const unitsSupplied = toInteger(get("units_supplied"));
 
-  // Region priority: explicit region column > infer province from store name
+  // Store only canonical provinces. If the upload's region column contains
+  // a store name or malformed geography, fall back to store inference.
   const explicitRegion = toText(get("region"));
   const storeLocation = toText(get("store_location"));
-  const region = explicitRegion || (storeLocation ? inferProvince(storeLocation) : null);
+  const region = resolveProvince({ region: explicitRegion, storeLocation });
 
   return {
     user_id: userId,

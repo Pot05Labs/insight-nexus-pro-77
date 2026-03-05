@@ -25,6 +25,30 @@ const FS = "Free State";
 const NW = "North West";
 const NC = "Northern Cape";
 
+export const SA_PROVINCES = [GP, WC, KZN, EC, FS, LP, MP, NW, NC] as const;
+export const VALID_PROVINCE_SET = new Set<string>(SA_PROVINCES);
+
+const PROVINCE_ALIASES: Record<string, string> = {
+  gauteng: GP,
+  gp: GP,
+  westerncape: WC,
+  wc: WC,
+  kwazulunatal: KZN,
+  kzn: KZN,
+  easterncape: EC,
+  ec: EC,
+  freestate: FS,
+  fs: FS,
+  limpopo: LP,
+  lp: LP,
+  mpumalanga: MP,
+  mp: MP,
+  northwest: NW,
+  nw: NW,
+  northerncape: NC,
+  nc: NC,
+};
+
 /* ------------------------------------------------------------------ */
 /*  Store → Province lookup (normalised keys)                          */
 /* ------------------------------------------------------------------ */
@@ -657,6 +681,41 @@ function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+export function canonicalProvince(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const norm = normalise(value);
+  if (!norm) return null;
+
+  return PROVINCE_ALIASES[norm] ?? null;
+}
+
+function extractProvinceAlias(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const upper = value.toUpperCase();
+  const matches = upper.match(/\b(?:GP|WC|KZN|EC|FS|LP|MP|NW|NC)\b/g);
+  if (!matches) return null;
+
+  return canonicalProvince(matches[0]);
+}
+
+function inferProvinceFromSegments(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const segments = value
+    .split(/[^a-z0-9]+/i)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length >= 3);
+
+  for (const segment of segments) {
+    const province = inferProvince(segment);
+    if (province && VALID_PROVINCE_SET.has(province)) return province;
+  }
+
+  return null;
+}
+
 /**
  * Infer the South African province from a store/shopping centre name.
  * Returns the province string (e.g. "Gauteng", "Western Cape") or null
@@ -676,6 +735,40 @@ export function inferProvince(storeLocation: string): string | null {
   for (const [keyword, province] of KEYWORD_PROVINCE) {
     if (norm.includes(keyword)) return province;
   }
+
+  return null;
+}
+
+export function resolveProvince(input: {
+  region?: string | null;
+  storeLocation?: string | null;
+}): string | null {
+  const { region, storeLocation } = input;
+
+  const explicitProvince = canonicalProvince(region);
+  if (explicitProvince) return explicitProvince;
+
+  const regionAlias = extractProvinceAlias(region);
+  if (regionAlias) return regionAlias;
+
+  if (region) {
+    const fromRegion = inferProvince(region);
+    if (fromRegion && VALID_PROVINCE_SET.has(fromRegion)) return fromRegion;
+  }
+
+  const storeAlias = extractProvinceAlias(storeLocation);
+  if (storeAlias) return storeAlias;
+
+  if (storeLocation) {
+    const fromStore = inferProvince(storeLocation);
+    if (fromStore && VALID_PROVINCE_SET.has(fromStore)) return fromStore;
+  }
+
+  const segmentedRegion = inferProvinceFromSegments(region);
+  if (segmentedRegion) return segmentedRegion;
+
+  const segmentedStore = inferProvinceFromSegments(storeLocation);
+  if (segmentedStore) return segmentedStore;
 
   return null;
 }

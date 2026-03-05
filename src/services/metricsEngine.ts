@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveProvince } from "@/lib/sa-store-provinces";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -13,7 +14,7 @@ export interface SellOutMetrics {
   grossMarginPct: number;
   revenueByRetailer: Record<string, number>;
   revenueByProduct: Record<string, number>;
-  revenueByRegion: Record<string, number>;
+  revenueByProvince: Record<string, number>;
   unitsByCategory: Record<string, number>;
   revenueTimeSeries: { date: string; revenue: number; units: number }[];
 }
@@ -72,7 +73,7 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
   while (hasMore) {
     const { data: page, error } = await supabase
       .from("sell_out_data")
-      .select("date, retailer, product_name_raw, region, category, revenue, units_sold, units_supplied, cost")
+      .select("date, retailer, product_name_raw, region, store_location, category, revenue, units_sold, units_supplied, cost")
       .eq("project_id", projectId)
       .is("deleted_at", null)
       .order("date", { ascending: true })
@@ -106,8 +107,17 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
 
   const revenueByRetailer = aggregate(data, "retailer", "revenue");
   const revenueByProduct = aggregate(data, "product_name_raw", "revenue");
-  const revenueByRegion = aggregate(data, "region", "revenue");
   const unitsByCategory = aggregate(data, "category", "units_sold");
+  const revenueByProvince: Record<string, number> = {};
+
+  for (const row of data) {
+    const province = resolveProvince({
+      region: typeof row.region === "string" ? row.region : null,
+      storeLocation: typeof row.store_location === "string" ? row.store_location : null,
+    });
+    if (!province) continue;
+    revenueByProvince[province] = (revenueByProvince[province] ?? 0) + Number(row.revenue ?? 0);
+  }
 
   // Time series aggregation by date
   const tsMap = new Map<string, { revenue: number; units: number }>();
@@ -132,7 +142,7 @@ async function computeSellOutMetrics(projectId: string): Promise<SellOutMetrics 
     grossMarginPct,
     revenueByRetailer,
     revenueByProduct,
-    revenueByRegion,
+    revenueByProvince,
     unitsByCategory,
     revenueTimeSeries,
   };
