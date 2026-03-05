@@ -44,71 +44,6 @@ export type Database = {
         }
         Relationships: []
       }
-      campaign_data: {
-        Row: {
-          ad_group: string | null
-          campaign_name: string | null
-          clicks: number | null
-          conversions: number | null
-          created_at: string
-          created_by: string | null
-          date: string
-          deleted_at: string | null
-          id: string
-          impressions: number | null
-          platform: string
-          revenue: number | null
-          spend: number | null
-          updated_at: string | null
-          upload_id: string | null
-          user_id: string
-        }
-        Insert: {
-          ad_group?: string | null
-          campaign_name?: string | null
-          clicks?: number | null
-          conversions?: number | null
-          created_at?: string
-          created_by?: string | null
-          date: string
-          deleted_at?: string | null
-          id?: string
-          impressions?: number | null
-          platform: string
-          revenue?: number | null
-          spend?: number | null
-          updated_at?: string | null
-          upload_id?: string | null
-          user_id: string
-        }
-        Update: {
-          ad_group?: string | null
-          campaign_name?: string | null
-          clicks?: number | null
-          conversions?: number | null
-          created_at?: string
-          created_by?: string | null
-          date?: string
-          deleted_at?: string | null
-          id?: string
-          impressions?: number | null
-          platform?: string
-          revenue?: number | null
-          spend?: number | null
-          updated_at?: string | null
-          upload_id?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "campaign_data_upload_id_fkey"
-            columns: ["upload_id"]
-            isOneToOne: false
-            referencedRelation: "data_uploads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       campaign_data_v2: {
         Row: {
           campaign_name: string | null
@@ -249,6 +184,53 @@ export type Database = {
           },
         ]
       }
+      client_intelligence: {
+        Row: {
+          confidence: number | null
+          content: Json
+          created_at: string | null
+          data_points_used: number | null
+          deleted_at: string | null
+          id: string
+          intelligence_type: string
+          last_updated_at: string | null
+          project_id: string
+          user_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          content?: Json
+          created_at?: string | null
+          data_points_used?: number | null
+          deleted_at?: string | null
+          id?: string
+          intelligence_type: string
+          last_updated_at?: string | null
+          project_id: string
+          user_id: string
+        }
+        Update: {
+          confidence?: number | null
+          content?: Json
+          created_at?: string | null
+          data_points_used?: number | null
+          deleted_at?: string | null
+          id?: string
+          intelligence_type?: string
+          last_updated_at?: string | null
+          project_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_intelligence_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       computed_metrics: {
         Row: {
           computed_at: string | null
@@ -370,162 +352,6 @@ export type Database = {
           },
         ]
       }
-      entity_matches: {
-        Row: {
-          campaign_product: string | null
-          canonical_product: string | null
-          confidence: number | null
-          created_at: string | null
-          id: string
-          match_tier: number | null
-          project_id: string
-          reasoning: string | null
-          sell_out_sku: string | null
-          user_confirmed: boolean | null
-          user_id: string
-        }
-        Insert: {
-          campaign_product?: string | null
-          canonical_product?: string | null
-          confidence?: number | null
-          created_at?: string | null
-          id?: string
-          match_tier?: number | null
-          project_id: string
-          reasoning?: string | null
-          sell_out_sku?: string | null
-          user_confirmed?: boolean | null
-          user_id: string
-        }
-        Update: {
-          campaign_product?: string | null
-          canonical_product?: string | null
-          confidence?: number | null
-          created_at?: string | null
-          id?: string
-          match_tier?: number | null
-          project_id?: string
-          reasoning?: string | null
-          sell_out_sku?: string | null
-          user_confirmed?: boolean | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "entity_matches_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      file_uploads: {
-        Row: {
-          classification: Json | null
-          created_at: string | null
-          data_type: string | null
-          deleted_at: string | null
-          file_format: string | null
-          filename: string
-          id: string
-          project_id: string
-          status: string | null
-          storage_path: string
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          classification?: Json | null
-          created_at?: string | null
-          data_type?: string | null
-          deleted_at?: string | null
-          file_format?: string | null
-          filename: string
-          id?: string
-          project_id: string
-          status?: string | null
-          storage_path: string
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          classification?: Json | null
-          created_at?: string | null
-          data_type?: string | null
-          deleted_at?: string | null
-          file_format?: string | null
-          filename?: string
-          id?: string
-          project_id?: string
-          status?: string | null
-          storage_path?: string
-          updated_at?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "file_uploads_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      harmonized_sales: {
-        Row: {
-          channel: string | null
-          cost: number | null
-          created_at: string
-          date: string
-          id: string
-          product_name: string | null
-          returns: number | null
-          revenue: number | null
-          sku: string | null
-          units_sold: number | null
-          upload_id: string | null
-          user_id: string
-        }
-        Insert: {
-          channel?: string | null
-          cost?: number | null
-          created_at?: string
-          date: string
-          id?: string
-          product_name?: string | null
-          returns?: number | null
-          revenue?: number | null
-          sku?: string | null
-          units_sold?: number | null
-          upload_id?: string | null
-          user_id: string
-        }
-        Update: {
-          channel?: string | null
-          cost?: number | null
-          created_at?: string
-          date?: string
-          id?: string
-          product_name?: string | null
-          returns?: number | null
-          revenue?: number | null
-          sku?: string | null
-          units_sold?: number | null
-          upload_id?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "harmonized_sales_upload_id_fkey"
-            columns: ["upload_id"]
-            isOneToOne: false
-            referencedRelation: "data_uploads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       narrative_reports: {
         Row: {
           content: Json | null
@@ -596,53 +422,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      pipeline_runs: {
-        Row: {
-          completed_at: string | null
-          current_stage: number | null
-          deleted_at: string | null
-          id: string
-          project_id: string
-          stage_details: Json | null
-          started_at: string | null
-          status: string | null
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          completed_at?: string | null
-          current_stage?: number | null
-          deleted_at?: string | null
-          id?: string
-          project_id: string
-          stage_details?: Json | null
-          started_at?: string | null
-          status?: string | null
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          completed_at?: string | null
-          current_stage?: number | null
-          deleted_at?: string | null
-          id?: string
-          project_id?: string
-          stage_details?: Json | null
-          started_at?: string | null
-          status?: string | null
-          updated_at?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "pipeline_runs_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       profiles: {
         Row: {
