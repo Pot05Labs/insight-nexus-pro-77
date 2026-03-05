@@ -21,18 +21,33 @@ const GeographyPage = () => {
   const storeData = Object.entries(revByStore).sort(([, a], [, b]) => b - a).slice(0, 5)
     .map(([store, revenue]) => ({ store, revenue: Math.round(revenue) }));
 
-  // Infer region: use region field, or resolve province from store name lookup table
+  // Valid SA provinces — used to validate whether r.region is already a province name
+  const VALID_PROVINCES = new Set([
+    "Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape",
+    "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape",
+  ]);
+
+  // Infer region: validate region field against SA provinces, then try store lookup
   const inferRegion = (r: typeof data[0]): string => {
-    if (r.region) return r.region;
+    // 1. If region field is a valid SA province, use it directly
+    if (r.region && VALID_PROVINCES.has(r.region)) return r.region;
+
+    // 2. If region field exists but is NOT a valid province (e.g. a store name),
+    //    try to resolve it via the store-to-province lookup
+    if (r.region) {
+      const fromRegionField = inferProvince(r.region);
+      if (fromRegionField) return fromRegionField;
+    }
+
+    // 3. Try resolving from store_location
     const loc = r.store_location?.trim();
-    if (!loc) return "Unknown";
-    // Use SA store-to-province lookup (e.g. "Makro - Silver Lakes" → "Gauteng")
-    const province = inferProvince(loc);
-    if (province) return province;
-    // Fallback: extract area after dash if no province match
-    const dashIdx = loc.indexOf(" - ");
-    if (dashIdx !== -1) return loc.slice(dashIdx + 3).trim() || loc;
-    return loc;
+    if (loc) {
+      const fromStore = inferProvince(loc);
+      if (fromStore) return fromStore;
+    }
+
+    // 4. Fallback — never return raw store names
+    return "Other";
   };
 
   // Revenue by province/region

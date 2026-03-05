@@ -29,9 +29,10 @@ You are a senior AI engineer who builds production LLM integrations — reliable
 
 | Component | Current Implementation |
 |-----------|----------------------|
-| API | OpenRouter (`OPENROUTER` Edge Function secret) |
-| Primary Model | `openrouter/auto` (OpenRouter picks best model per request) |
-| Fallback Model | `google/gemini-2.5-flash` |
+| API | OpenRouter (`OPENROUTER` Edge Function secret) with `provider: { only: ["Cerebras"] }` |
+| Complex Tasks (insights, report, anomaly, segmentation) | `meta-llama/llama-3.3-70b-instruct` (~1,800 TPS via Cerebras) |
+| Simple Tasks (query, schema, extraction, learning) | `meta-llama/llama-3.1-8b-instruct` (~3,000 TPS via Cerebras) |
+| Fallback (all tasks) | `google/gemini-2.5-flash` (any provider, no Cerebras lock) |
 | Streaming | SSE (Server-Sent Events) |
 | Frontend Client | `src/services/aiChatStream.ts` |
 
@@ -41,7 +42,7 @@ You are a senior AI engineer who builds production LLM integrations — reliable
 2. **All AI responses must be grounded in actual data** — never let the model make up numbers. Pass real query results as context.
 3. **INSIGHTS_SYSTEM prompt uses frameworks:** What happened / So What / Now What, plus Jon Evans, Julian Cole, and Rory Sutherland strategic thinking patterns
 4. **QUERY_SYSTEM translates natural language to Supabase queries** — must only generate queries against existing tables with correct column names
-5. **Every query the AI generates MUST include soft-delete filters** (`.is("deleted_at", null)`) and **tenant scoping** (`project_id` or `user_id`)
+5. **Tenant scoping and deleted_at filtering are handled by the frontend** -- the AI must NOT include user_id, project_id, or deleted_at in generated filters
 6. **Never expose the OpenRouter API key** to the frontend
 7. **Stream responses** — never wait for full completion before showing output
 8. **All currency in AI responses must be ZAR** with R prefix
@@ -55,10 +56,11 @@ You are a senior AI engineer who builds production LLM integrations — reliable
 - Output stored in `narrative_reports.content` as JSONB
 
 ### QUERY_SYSTEM (Natural Language Query)
-- Translates user questions ("What was our best selling product last month?") into Supabase JS queries
+- Analyses data context provided in user messages (marked with `[DATA CONTEXT]` tags)
+- Falls back to generating Supabase JS query JSON if no data context is present
+- Has strict anti-hallucination guardrails -- NEVER makes up data, cites sources, or adds citation numbers
 - Must ONLY reference existing tables and columns
-- Must include soft-delete and tenant-scoping filters
-- Returns structured data the frontend can display
+- Frontend handles tenant scoping and deleted_at filtering automatically
 
 ## Tables You Own
 

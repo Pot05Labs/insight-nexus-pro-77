@@ -56,6 +56,9 @@ const InsightsPage = () => {
   // PDF export ref — wraps the report content section
   const reportRef = useRef<HTMLDivElement>(null);
 
+  // Guard to prevent infinite auto-generation loops
+  const autoGenerateAttempted = useRef(false);
+
   const fetchReport = async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -70,7 +73,13 @@ const InsightsPage = () => {
       .limit(1);
     const latest = data?.[0];
     if (latest?.content && typeof latest.content === "object") {
-      setReport(latest.content as unknown as ReportContent);
+      const parsed = latest.content as unknown as ReportContent;
+      // Discard stale "no data" reports so the Generate button shows
+      if (parsed.executive_summary?.toLowerCase().includes("no data available")) {
+        setReport(null);
+      } else {
+        setReport(parsed);
+      }
     } else {
       setReport(null);
     }
@@ -293,6 +302,20 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values 
   };
 
   useEffect(() => { fetchReport(); }, []);
+
+  // Auto-generate report if data exists but no report loaded (e.g. after purge)
+  useEffect(() => {
+    if (!loading && !report && !generating && !autoGenerateAttempted.current) {
+      autoGenerateAttempted.current = true;
+      getProjectId().then(ids => {
+        if (ids) {
+          computeMetrics(ids.projectId).then(({ sellOut, campaign }) => {
+            if (sellOut || campaign) generateReport();
+          });
+        }
+      });
+    }
+  }, [loading, report]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });

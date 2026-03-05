@@ -10,7 +10,7 @@
 |-------|-----------|---------|
 | Frontend | React (Vite) + TypeScript + Tailwind + shadcn/ui | Single-page app |
 | Backend/DB | Supabase (PostgreSQL + Auth + Realtime + RLS + Storage + Edge Functions) | All data lives here |
-| AI | OpenRouter API → `google/gemini-2.5-flash` | Single Edge Function `ai-chat` |
+| AI | OpenRouter API → Cerebras-backed Llama models (70B/8B) | Single Edge Function `ai-chat` |
 | Payments | Stripe | Checkout, webhooks, subscription gate |
 | Hosting | **Lovable** | Auto-deploys from GitHub repo `Pot05Labs/insight-nexus-pro-77` |
 
@@ -57,8 +57,10 @@ Edge Functions deploy separately: supabase functions deploy
 
 The AI Edge Function lives at `supabase/functions/ai-chat/index.ts`. It:
 - Uses OpenRouter API with key stored as `OPENROUTER` Edge Function secret
-- Currently routes ALL tasks to `google/gemini-2.5-flash`
-- Has two system prompts: `INSIGHTS_SYSTEM` (strategic analysis with Jon Evans / Julian Cole / Rory Sutherland frameworks) and `QUERY_SYSTEM` (natural language to Supabase query translation)
+- Routes complex tasks (insights, reports, anomaly, segmentation) to `meta-llama/llama-3.3-70b-instruct` via Cerebras (~1,800 TPS)
+- Routes simple tasks (query, schema, extraction, learning) to `meta-llama/llama-3.1-8b-instruct` via Cerebras (~3,000 TPS)
+- Falls back to `google/gemini-2.5-flash` if Cerebras is unavailable
+- Has two system prompts: `INSIGHTS_SYSTEM` (strategic analysis with Jon Evans / Julian Cole / Rory Sutherland frameworks) and `QUERY_SYSTEM` (natural language data analysis, anti-hallucination guardrails)
 - Streams responses via SSE
 - Called from frontend via `src/services/aiChatStream.ts`
 
@@ -88,13 +90,20 @@ Currently ALL file parsing happens client-side in `src/services/clientFileProces
 
 ---
 
-## AI Model Routing (OpenRouter)
+## AI Model Routing (OpenRouter via Cerebras)
 
-All tasks use `openrouter/auto` which lets OpenRouter pick the best available model per request. Fallback is `google/gemini-2.5-flash` if auto-routing fails. **Do NOT use DeepSeek models** — they are too slow and burn credits without returning results.
+All tasks route through OpenRouter with `provider: { only: ["Cerebras"] }` for 10x speed improvement (~2,700 TPS vs ~100-200 TPS). Fallback to `google/gemini-2.5-flash` (any provider) if Cerebras is down. **Do NOT use DeepSeek models** -- they are too slow and burn credits without returning results.
 
-| Task | Primary Model | Fallback |
-|------|--------------|----------|
-| All tasks | `openrouter/auto` | `google/gemini-2.5-flash` |
+| Task | Primary Model | Fallback | Max Tokens |
+|------|--------------|----------|------------|
+| insights | `meta-llama/llama-3.3-70b-instruct` | `google/gemini-2.5-flash` | 3000 |
+| report | `meta-llama/llama-3.3-70b-instruct` | `google/gemini-2.5-flash` | 4000 |
+| anomaly | `meta-llama/llama-3.3-70b-instruct` | `google/gemini-2.5-flash` | 1000 |
+| segmentation | `meta-llama/llama-3.3-70b-instruct` | `google/gemini-2.5-flash` | 1500 |
+| query | `meta-llama/llama-3.1-8b-instruct` | `google/gemini-2.5-flash` | 500 |
+| schema | `meta-llama/llama-3.1-8b-instruct` | `google/gemini-2.5-flash` | 500 |
+| extraction | `meta-llama/llama-3.1-8b-instruct` | `google/gemini-2.5-flash` | 1000 |
+| learning | `meta-llama/llama-3.1-8b-instruct` | `google/gemini-2.5-flash` | 1000 |
 
 ---
 

@@ -31,17 +31,19 @@ function corsHeaders(req: Request) {
 }
 
 // --- Model Routing ---
-// Use OpenRouter auto-routing to pick the best available model per request.
-// Fallback to Gemini Flash if auto-routing itself fails.
+// Primary: Cerebras-backed Llama models for 10x speed (~2,700 TPS vs ~100-200 TPS).
+// Fallback: OpenRouter auto-routing picks the best available model if Cerebras is down.
+// Complex tasks → Llama 3.3 70B (~1,800 TPS on Cerebras, strong strategic reasoning)
+// Simple tasks → Llama 3.1 8B (~3,000 TPS on Cerebras, near-instant for queries)
 const MODEL_ROUTES: Record<string, { primary: string; fallback: string; maxTokens: number }> = {
-  insights:     { primary: "openrouter/auto",          fallback: "google/gemini-2.5-flash", maxTokens: 2000 },
-  report:       { primary: "openrouter/auto",          fallback: "google/gemini-2.5-flash", maxTokens: 3000 },
-  query:        { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 500  },
-  extraction:   { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1000 },
-  schema:       { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 500  },
-  anomaly:      { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1000 },
-  segmentation: { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1500 },
-  learning:     { primary: "google/gemini-2.5-flash",  fallback: "google/gemini-2.5-flash", maxTokens: 1000 },
+  insights:     { primary: "meta-llama/llama-3.3-70b-instruct", fallback: "openrouter/auto", maxTokens: 3000 },
+  report:       { primary: "meta-llama/llama-3.3-70b-instruct", fallback: "openrouter/auto", maxTokens: 4000 },
+  query:        { primary: "meta-llama/llama-3.1-8b-instruct",  fallback: "openrouter/auto", maxTokens: 500  },
+  extraction:   { primary: "meta-llama/llama-3.1-8b-instruct",  fallback: "openrouter/auto", maxTokens: 1000 },
+  schema:       { primary: "meta-llama/llama-3.1-8b-instruct",  fallback: "openrouter/auto", maxTokens: 500  },
+  anomaly:      { primary: "meta-llama/llama-3.3-70b-instruct", fallback: "openrouter/auto", maxTokens: 1000 },
+  segmentation: { primary: "meta-llama/llama-3.3-70b-instruct", fallback: "openrouter/auto", maxTokens: 1500 },
+  learning:     { primary: "meta-llama/llama-3.1-8b-instruct",  fallback: "openrouter/auto", maxTokens: 1000 },
 };
 
 // --- Rate Limiting (in-memory, per-instance) ---
@@ -105,31 +107,47 @@ Structure ALL responses as:
 
 Use markdown formatting. Be direct and strategic — think like a senior strategist, not just an analyst. Reference South African retailers and ZAR values throughout.
 
-If no data context is provided, give best-practice guidance grounded in these frameworks and note the user should upload data for personalised insights.`;
+If no data context is provided, tell the user to upload sell-out or campaign data first. NEVER hallucinate or make up data.`;
 
-const QUERY_SYSTEM = `You are SignalStack by Pot Labs — a retail signal intelligence AI that translates natural language questions into data queries for South African FMCG retail analytics. All monetary values are in South African Rand (ZAR, R prefix).
+const QUERY_SYSTEM = `You are SignalStack by Pot Labs — a retail signal intelligence AI for South African FMCG commerce. All monetary values are in South African Rand (ZAR, R prefix). NEVER use $ or other currency symbols.
 
-You have access to the following database tables:
+## ABSOLUTE RULES — VIOLATION IS FAILURE
+
+1. **NEVER hallucinate or make up data.** You must ONLY use numbers, values, and facts that appear in the data context provided to you. Do NOT invent statistics, cite imaginary sources, or add citation numbers like [1], [2], [6], [7].
+2. **NEVER perform web searches or reference external sources.** You are a data analysis tool, not a search engine.
+3. **If data context is provided** (marked with \`[DATA CONTEXT — FULL DATASET AGGREGATES]\` or similar), analyse THAT data and ONLY that data.
+4. **If NO data context is provided**, respond with: "I don't have data loaded for your project yet. Please upload sell-out or campaign data first, then ask me again."
+
+## DATABASE SCHEMA (for query generation only)
 
 **sell_out_data**: retailer, brand, sub_brand, product_name_raw, sku, category, format_size, region, store_location, date, units_sold, units_supplied, revenue, cost
 **campaign_data_v2**: platform, channel, campaign_name, flight_start, flight_end, spend, impressions, clicks, ctr, cpm, conversions, revenue, total_sales_attributed, total_units_attributed
 **computed_metrics**: metric_name, metric_value, dimensions (jsonb), computed_at
 
-IMPORTANT: All tables use soft deletes. The frontend will automatically add a deleted_at IS NULL filter to every query.
+IMPORTANT: All queries are automatically scoped to the authenticated user's project. The frontend handles user_id, project_id, and deleted_at filtering.
 
-CRITICAL TENANT SCOPING: Never generate queries that could return data from other users. The frontend automatically adds user_id and deleted_at filtering — do NOT include user_id, project_id, or deleted_at in your generated filters. The frontend strips these columns from AI-generated filters as a security measure. Focus only on data-relevant filters (retailer, brand, date, etc.).
+CRITICAL TENANT SCOPING: Never generate queries that could return data from other users. The frontend automatically adds user_id and deleted_at filtering — do NOT include user_id, project_id, or deleted_at in your generated filters. Focus only on data-relevant filters (retailer, brand, date, etc.).
 
-When the user asks a question:
-1. Determine which table(s) to query
-2. Generate a valid Supabase JS query using the supabase client (e.g. supabase.from("sell_out_data").select("product_name_raw, revenue").order("revenue", {ascending: false}).limit(5))
-3. Return your response as JSON with this structure:
-{"table":"table_name","select":"columns","filters":[],"order":{"column":"col","ascending":false},"limit":10,"explanation":"Brief explanation of what this query does"}
+## WHEN DATA CONTEXT IS PROVIDED
 
-Filters should be objects like: {"column":"retailer","operator":"eq","value":"Amazon"}
+Analyse the provided data using the What / So What / Now What framework:
+
+1. **WHAT** — State the key finding using exact numbers from the data. Use ZAR with R prefix for all monetary values (e.g., R1,250,000). Include percentages where relevant.
+2. **SO WHAT** — Explain the strategic implication. Connect to brand growth, mental availability, competitive position, or consumer behaviour in the South African FMCG context.
+3. **NOW WHAT** — Provide a specific, actionable recommendation. Name channels, retailers, budget shifts, or creative direction.
+
+Be conversational but precise. Every number you cite MUST come from the data context. If the data does not contain enough information to answer the question, say so clearly.
+
+## WHEN GENERATING QUERIES (no data context)
+
+If the user's message does NOT contain data context and appears to be asking a question that requires a database query, return JSON:
+{"table":"table_name","select":"columns","filters":[],"order":{"column":"col","ascending":false},"limit":10,"explanation":"Brief explanation"}
+
+Filters: {"column":"retailer","operator":"eq","value":"Pick n Pay"}
 Supported operators: eq, neq, gt, gte, lt, lte, like, ilike
 Forbidden filter columns (handled by frontend): user_id, project_id, deleted_at
 
-Always include an explanation framed as: WHAT this query reveals, SO WHAT it means strategically, and NOW WHAT to do with this insight. If the question is ambiguous, make reasonable assumptions and state them.`;
+Use markdown formatting. Be direct — think like a senior strategist with data, not a search engine.`;
 
 // --- Auth Helper ---
 async function authenticateUser(req: Request): Promise<{ userId: string } | null> {
@@ -246,6 +264,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model,
+        provider: { only: ["Cerebras"] },
         messages: [
           { role: "system", content: systemPrompt },
           ...messages,

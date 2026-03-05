@@ -32,11 +32,12 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 
-  // Fetch ALL rows for the project (no arbitrary limit).
+  // Fetch rows for the project with a safety cap to prevent browser freezes.
   // Supabase PostgREST default max_rows is 1000, so PAGE_SIZE must
   // be <= 1000 or the server silently truncates the response and
   // the hasMore check fails (rows.length < PAGE_SIZE → stops early).
   const PAGE_SIZE = 1000;
+  const MAX_ROWS = 10_000;
   let allRows: SellOutRow[] = [];
   let offset = 0;
   let hasMore = true;
@@ -57,6 +58,12 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
 
     const rows = (page as SellOutRow[]) ?? [];
     allRows = allRows.concat(rows);
+
+    if (allRows.length >= MAX_ROWS) {
+      console.warn(`[useSellOutData] Capped at ${MAX_ROWS} rows (total available: ${allRows.length}+). Dashboard will use this subset for visualisation.`);
+      break;
+    }
+
     offset += PAGE_SIZE;
     hasMore = rows.length === PAGE_SIZE;
   }
@@ -71,7 +78,7 @@ export function useSellOutData() {
   const { data = [], isLoading } = useQuery({
     queryKey: ["sell-out-data"],
     queryFn: fetchSellOutData,
-    staleTime: 30_000,          // Don't refetch within 30s of a successful fetch
+    staleTime: 120_000,         // Don't refetch within 2min of a successful fetch
     refetchOnWindowFocus: false, // Avoid redundant refetches when switching tabs
   });
 
