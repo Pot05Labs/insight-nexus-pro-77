@@ -300,7 +300,7 @@ const STORE_PROVINCE_MAP: Record<string, string> = {
   "muizenberg": WC,
   "n1city": WC,
   "n1value": WC,
-  "northgate": WC,
+  "northgatewc": WC,
   "observatory": WC,
   "oudtshoorn": WC,
   "paarlmall": WC,
@@ -383,7 +383,7 @@ const STORE_PROVINCE_MAP: Record<string, string> = {
   "marquard": KZN,
   "midlandsmall": KZN,
   "midlands": KZN,
-  "morningside": KZN,     // Morningside in Durban
+  "morningsidekzn": KZN,     // Morningside in Durban
   "morningsidedurban": KZN,
   "mtedgecombe": KZN,
   "musgravecentre": KZN,
@@ -421,7 +421,7 @@ const STORE_PROVINCE_MAP: Record<string, string> = {
   "westvillemall": KZN,
 
   // ── Eastern Cape ─────────────────────────────────────────────
-  "baywestmall": EC,
+  "baywestmallec": EC,
   "baywest": EC,
   "boardwalk": EC,
   "boardwalkmall": EC,
