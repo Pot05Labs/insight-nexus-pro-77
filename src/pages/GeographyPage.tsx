@@ -9,6 +9,7 @@ import EmptyState from "@/components/EmptyState";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
+import { inferProvince } from "@/lib/sa-store-provinces";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 
 const GeographyPage = () => {
@@ -20,12 +21,15 @@ const GeographyPage = () => {
   const storeData = Object.entries(revByStore).sort(([, a], [, b]) => b - a).slice(0, 5)
     .map(([store, revenue]) => ({ store, revenue: Math.round(revenue) }));
 
-  // Infer region: use region field, or extract area from store_location ("Makro - Strubens Valley" → "Strubens Valley")
+  // Infer region: use region field, or resolve province from store name lookup table
   const inferRegion = (r: typeof data[0]): string => {
     if (r.region) return r.region;
     const loc = r.store_location?.trim();
     if (!loc) return "Unknown";
-    // Extract area after dash (e.g., "Makro - Silver Lakes" → "Silver Lakes")
+    // Use SA store-to-province lookup (e.g. "Makro - Silver Lakes" → "Gauteng")
+    const province = inferProvince(loc);
+    if (province) return province;
+    // Fallback: extract area after dash if no province match
     const dashIdx = loc.indexOf(" - ");
     if (dashIdx !== -1) return loc.slice(dashIdx + 3).trim() || loc;
     return loc;

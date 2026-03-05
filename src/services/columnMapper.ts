@@ -11,6 +11,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { SELL_OUT_SCHEMA, CAMPAIGN_SCHEMA, type SchemaField } from "@/lib/canonical-schemas";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -27,50 +28,34 @@ export interface ColumnMapping {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Canonical field definitions with aliases                           */
+/*  Normalisation (must be defined before field derivation)             */
 /* ------------------------------------------------------------------ */
 
-// Each canonical field has a list of normalised aliases it might appear as.
-// Normalisation: lowercase, strip all non-alphanumeric characters.
+function normalise(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
-const SELL_OUT_FIELDS: Record<string, string[]> = {
-  date:             ["date", "datedelivery", "deliverydate", "saledate", "transactiondate", "orderdate", "invoicedate", "reportdate", "period", "week", "month", "day"],
-  product_name_raw: ["product", "productname", "productnameraw", "item", "description", "productdescription", "itemname", "producttitle", "itemdescription"],
-  sku:              ["sku", "skusubssku", "skucode", "subssku", "ean", "barcode", "upc", "asin", "productcode", "itemcode", "article", "articlecode", "material", "materialcode"],
-  retailer:         ["retailer", "vendor", "marketplace", "outlet", "account", "customer", "accountname", "partner"],
-  store_location:   ["storelocation", "store", "storename", "location", "storeloc", "outletlocation", "branch", "site"],
-  region:           ["region", "area", "territory", "geo", "geography", "market", "province"],
-  category:         ["category", "productcategory", "cat", "segment", "productgroup", "department"],
-  brand:            ["brand", "brandname", "manufacturer"],
-  sub_brand:        ["subbrand", "subsproduct", "subproduct", "variant", "subbrandname"],
-  format_size:      ["formatsize", "format", "size", "packsize", "pack", "packaging"],
-  revenue:          ["revenue", "sales", "totalsales", "netsales", "grosssales", "salesvalue", "amount", "value", "turnover", "netrevenue", "grossrevenue", "totalvalue", "orderedvalue"],
-  actual_revenue:   ["merchandisesales", "actualsales", "actualrevenue", "sellthroughvalue", "sellthrough", "netmerchandise", "netsalesvalue"],
-  units_sold:       ["unitssold", "units", "qty", "quantity", "volume", "qtysold", "soldqty", "totalunits", "orderedqty"],
-  units_supplied:   ["unitssupplied", "supplied", "supplyqty", "qtysupplied", "suppliedqty", "delivered", "unitsdelivered", "deliveredqty"],
-  cost:             ["cost", "cogs", "costofgoods", "unitcost", "totalcost", "costvalue", "costprice"],
-  order_id:         ["mainorderid", "orderid", "transactionid", "invoiceid", "ordernumber"],
-};
+/* ------------------------------------------------------------------ */
+/*  Canonical field definitions — derived from canonical-schemas.ts    */
+/* ------------------------------------------------------------------ */
 
-const CAMPAIGN_FIELDS: Record<string, string[]> = {
-  flight_start:             ["date", "startdate", "flightstart", "campaigndate", "reportdate", "day"],
-  flight_end:               ["enddate", "flightend", "campaignend"],
-  platform:                 ["platform", "source", "network", "media", "mediachannel", "adplatform"],
-  channel:                  ["channel", "mediatype", "channeltype"],
-  campaign_name:            ["campaign", "campaignname", "campaigntitle", "name", "campaignid", "adgroup", "adset"],
-  spend:                    ["spend", "cost", "totalspend", "mediaspend", "adspend", "amountspent", "mediacost", "investment", "budget"],
-  impressions:              ["impressions", "impressionspaid", "imps", "views", "totalimpressions"],
-  clicks:                   ["clicks", "linkclicks", "totalclicks"],
-  ctr:                      ["ctr", "clickthroughrate", "clickrate"],
-  cpm:                      ["cpm", "costpermille"],
-  conversions:              ["conversions", "purchases", "orders", "actions", "results", "totalconversions"],
-  revenue:                  ["revenue", "purchasevalue", "conversionvalue", "roasvalue", "salesvalue", "attributedrevenue"],
-  roas:                     ["roas", "returnonadspend"],
-  total_sales_attributed:   ["totalsalesattributed", "attributedsales", "salesattributed"],
-  total_units_attributed:   ["totalunitsattributed", "attributedunits", "unitsattributed"],
-};
+// Single source of truth: aliases come from SELL_OUT_SCHEMA and CAMPAIGN_SCHEMA
+// in src/lib/canonical-schemas.ts. This eliminates drift between the two files.
 
-// Signals: if a file contains 3+ of these normalised terms in its headers, it's this type
+function deriveFields(schema: Record<string, SchemaField>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [key, field] of Object.entries(schema)) {
+    out[key] = field.aliases.map(normalise);
+  }
+  return out;
+}
+
+const SELL_OUT_FIELDS: Record<string, string[]> = deriveFields(SELL_OUT_SCHEMA);
+const CAMPAIGN_FIELDS: Record<string, string[]> = deriveFields(CAMPAIGN_SCHEMA);
+
+// Signals: if a file contains 3+ of these normalised terms in its headers, it's this type.
+// These are a curated subset used for data-type classification, not full alias lists.
+// Keep in sync with canonical-schemas.ts when adding new aliases.
 const SELL_OUT_SIGNALS = new Set([
   "unitssold", "unitssupplied", "retailer", "vendor", "sku", "barcode", "ean",
   "productname", "store", "storename", "cogs", "grosssales", "netsales", "turnover",
@@ -89,10 +74,6 @@ const CAMPAIGN_SIGNALS = new Set([
 /* ------------------------------------------------------------------ */
 /*  Pass 1: Local fuzzy matching                                       */
 /* ------------------------------------------------------------------ */
-
-function normalise(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
 
 function localMatch(headers: string[]): ColumnMapping {
   const normHeaders = headers.map(normalise);

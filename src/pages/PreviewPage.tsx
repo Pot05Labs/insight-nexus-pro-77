@@ -14,6 +14,12 @@ const PreviewPage = () => {
   const [loading, setLoading] = useState(true);
   const [upload, setUpload] = useState<any>(null);
   const [sampleRows, setSampleRows] = useState<any[]>([]);
+  const [aggregateStats, setAggregateStats] = useState<{
+    totalRevenue: number;
+    totalUnits: number;
+    skuCount: number;
+    channelCount: number;
+  }>({ totalRevenue: 0, totalUnits: 0, skuCount: 0, channelCount: 0 });
 
   useEffect(() => {
     const fetchLatest = async () => {
@@ -35,7 +41,7 @@ const PreviewPage = () => {
       const latestUpload = uploads?.[0] ?? null;
       setUpload(latestUpload);
 
-      // Get sample sell-out rows (scoped to user, respecting soft deletes)
+      // Fetch sample rows for table preview (20 most recent)
       const { data: rows } = await supabase
         .from("sell_out_data")
         .select("*")
@@ -45,15 +51,29 @@ const PreviewPage = () => {
         .limit(20);
 
       setSampleRows(rows ?? []);
+
+      // Fetch ALL rows (lightweight columns only) for accurate aggregate KPIs
+      const { data: allRows } = await supabase
+        .from("sell_out_data")
+        .select("revenue, units_sold, product_name_raw, sku, retailer")
+        .eq("user_id", user.id)
+        .is("deleted_at", null);
+
+      if (allRows && allRows.length > 0) {
+        setAggregateStats({
+          totalRevenue: allRows.reduce((a, b) => a + (Number(b.revenue) || 0), 0),
+          totalUnits: allRows.reduce((a, b) => a + (Number(b.units_sold) || 0), 0),
+          skuCount: new Set(allRows.map((r) => r.sku ?? r.product_name_raw).filter(Boolean)).size,
+          channelCount: new Set(allRows.map((r) => r.retailer).filter(Boolean)).size,
+        });
+      }
+
       setLoading(false);
     };
     fetchLatest();
   }, []);
 
-  const totalRevenue = sampleRows.reduce((a, b) => a + (Number(b.revenue) || 0), 0);
-  const totalUnits = sampleRows.reduce((a, b) => a + (b.units_sold ?? 0), 0);
-  const skuCount = new Set(sampleRows.map((r) => r.sku ?? r.product_name_raw).filter(Boolean)).size;
-  const channelCount = new Set(sampleRows.map((r) => r.retailer).filter(Boolean)).size;
+  const { totalRevenue, totalUnits, skuCount, channelCount } = aggregateStats;
 
   const columnMappings = upload?.column_mapping
     ? Object.entries(upload.column_mapping as Record<string, string>).map(([source, canonical]) => ({ source, canonical, confidence: 0.95 }))
@@ -129,12 +149,12 @@ const PreviewPage = () => {
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
               <Card>
                 <CardHeader>
-                  <CardTitle className="font-display text-base">Extracted Metrics</CardTitle>
+                  <CardTitle className="font-display text-base">Dataset Metrics</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { metric: "Total Revenue", value: totalRevenue > 0 ? `R${(totalRevenue / 1000).toFixed(1)}K` : "—" },
+                      { metric: "Total Revenue", value: totalRevenue > 0 ? (totalRevenue >= 1_000_000 ? `R${(totalRevenue / 1_000_000).toFixed(2)}M` : `R${(totalRevenue / 1_000).toFixed(1)}K`) : "—" },
                       { metric: "Total Units", value: totalUnits > 0 ? totalUnits.toLocaleString() : "—" },
                       { metric: "SKU Count", value: skuCount > 0 ? skuCount.toString() : "—" },
                       { metric: "Retailers", value: channelCount > 0 ? channelCount.toString() : "—" },

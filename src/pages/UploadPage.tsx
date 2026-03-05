@@ -37,6 +37,7 @@ type UploadFile = {
   agents: ProcessingStage[];
   resultRowCount?: number;
   resultDataType?: string;
+  resultWarning?: string;
 };
 
 type ExistingUpload = {
@@ -209,6 +210,12 @@ const UploadPage = () => {
         const typeLabel = upload.data_type === "mixed" ? "Sell-out + Campaign"
           : upload.data_type === "campaign" ? "Campaign" : "Sell-out";
 
+        // Detect partial failures from server error_message
+        const hasPartialFailure = upload.error_message &&
+          (upload.error_message.toLowerCase().includes("partial") ||
+           upload.error_message.toLowerCase().includes("failed") ||
+           upload.error_message.toLowerCase().includes("skipped"));
+
         setFiles(prev => prev.map(f =>
           f.id === fileId
             ? { ...f, agents: f.agents.map(a => ({ ...a, status: "done" as AgentStatus })) }
@@ -221,10 +228,13 @@ const UploadPage = () => {
           processingMessage: "Done!",
           resultRowCount: upload.row_count ?? 0,
           resultDataType: typeLabel,
+          resultWarning: hasPartialFailure ? upload.error_message! : undefined,
         });
         toast({
-          title: "File processed",
-          description: `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
+          title: hasPartialFailure ? "File processed with warnings" : "File processed",
+          description: hasPartialFailure
+            ? `${upload.row_count ?? 0} rows inserted as ${typeLabel} data. ${upload.error_message}`
+            : `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
         });
 
         // Invalidate dashboard caches so new data appears immediately
@@ -296,19 +306,23 @@ const UploadPage = () => {
         const { audit } = result;
         const typeLabel = result.dataType === "mixed" ? "Sell-out + Campaign"
           : result.dataType === "campaign" ? "Campaign" : "Sell-out";
+        const hasFailures = audit.failedInserts > 0;
         updateFile(fileId, {
           status: "done",
           progress: 100,
           processingMessage: "Done!",
           resultRowCount: audit.successfulInserts,
           resultDataType: typeLabel,
+          resultWarning: hasFailures
+            ? `${audit.failedInserts} of ${audit.successfulInserts + audit.failedInserts} rows failed to insert.`
+            : undefined,
         });
         let desc = `${audit.successfulInserts.toLocaleString()} rows inserted as ${typeLabel} data.`;
-        if (audit.failedInserts > 0) desc += ` ${audit.failedInserts} rows failed.`;
+        if (hasFailures) desc += ` ${audit.failedInserts} rows failed.`;
         if (result.mapping.source === "llm") desc += " (AI-assisted mapping)";
         console.log(`[upload] Mapping used:`, result.mapping.fieldMap);
         console.log(`[upload] Unmapped columns:`, result.mapping.unmappedColumns);
-        toast({ title: "File processed", description: desc });
+        toast({ title: hasFailures ? "File processed with warnings" : "File processed", description: desc });
       } else {
         updateFile(fileId, {
           status: "error",
@@ -336,6 +350,27 @@ const UploadPage = () => {
     if (!session) {
       updateFile(uf.id, { status: "error", error: "You must be logged in to upload files." });
       return;
+    }
+
+    // Check for duplicate upload — archive old data if re-uploading same file
+    const { data: existingDups } = await supabase
+      .from("data_uploads")
+      .select("id, file_name, created_at, row_count")
+      .eq("user_id", session.user.id)
+      .eq("file_name", uf.file.name)
+      .neq("status", "archived");
+
+    if (existingDups && existingDups.length > 0) {
+      toast({
+        title: "Duplicate file detected",
+        description: `${uf.file.name} was previously uploaded (${existingDups[0].row_count ?? 0} rows). The old data will be archived.`,
+      });
+      const now = new Date().toISOString();
+      for (const dup of existingDups) {
+        await supabase.from("sell_out_data").update({ deleted_at: now } as any).eq("upload_id", dup.id);
+        await supabase.from("campaign_data_v2").update({ deleted_at: now } as any).eq("upload_id", dup.id);
+        await supabase.from("data_uploads").update({ status: "archived" } as any).eq("id", dup.id);
+      }
     }
 
     const storagePath = `${session.user.id}/${uf.id}-${uf.file.name}`;
@@ -592,6 +627,12 @@ const UploadPage = () => {
                         <p className="font-semibold">{(uf.file.size / 1024).toFixed(1)} KB</p>
                       </div>
                     </div>
+                    {uf.resultWarning && (
+                      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 rounded-md px-3 py-2 text-xs">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        <span>{uf.resultWarning}</span>
+                      </div>
+                    )}
                     <Link to="/dashboard">
                       <Button size="sm" variant="outline" className="mt-2 text-xs">
                         <BarChart3 className="h-3 w-3 mr-1" />
