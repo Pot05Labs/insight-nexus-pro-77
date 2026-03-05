@@ -9,7 +9,8 @@ import {
   BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
-import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, ArrowUpDown, Lightbulb } from "lucide-react";
+import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, ArrowUpDown, Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import ExportPdfButton from "@/components/ExportPdfButton";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
@@ -29,6 +30,8 @@ const CampaignsPage = () => {
   const [platformFilter, setPlatformFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortAsc, setSortAsc] = useState(false);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 25;
   const reportRef = useRef<HTMLDivElement>(null);
   const { data: sellOutData } = useSellOutData();
 
@@ -158,6 +161,7 @@ const CampaignsPage = () => {
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(false); }
+    setPage(0);
   };
 
   const dataSummary = `Campaign Performance: Total Spend ${fmtZAR(totalSpend)}, Impressions ${totalImpressions.toLocaleString()}, Clicks ${totalClicks.toLocaleString()}, CTR ${ctr.toFixed(2)}%, ROAS ${roas.toFixed(1)}x. Platforms: ${platformData.map((p) => `${p.platform}: ${fmtZAR(p.spend)} spend`).join(", ")}. Campaign Attribution: ${attribution.slice(0, 3).map((a) => `${a.campaign_name}: ${fmtZAR(a.incrementalRevenue)} incremental revenue, ${a.liftPct.toFixed(1)}% lift`).join("; ")}.`;
@@ -202,7 +206,7 @@ const CampaignsPage = () => {
         </div>
         <div className="flex items-center gap-3">
           {hasData && (
-            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+            <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setPage(0); }}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Platform" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Platforms</SelectItem>
@@ -415,7 +419,7 @@ const CampaignsPage = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {campaignTable.slice(0, 50).map((c, i) => (
+                      {campaignTable.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((c, i) => (
                         <TableRow key={i}>
                           <TableCell className="font-medium max-w-[200px] truncate">{c.campaign_name}</TableCell>
                           <TableCell className="text-right">{fmtZAR(c.spend)}</TableCell>
@@ -429,6 +433,21 @@ const CampaignsPage = () => {
                     </TableBody>
                   </Table>
                 </div>
+                {campaignTable.length > PAGE_SIZE && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t">
+                    <span className="text-xs text-muted-foreground">
+                      Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, campaignTable.length)} of {campaignTable.length}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= campaignTable.length} onClick={() => setPage(p => p + 1)}>
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { ShoppingCart, TrendingUp, DollarSign, Package, Upload, Inbox } from "lucide-react";
@@ -16,6 +17,8 @@ const SalesExplorer = () => {
   const { data: rawData, loading } = useSellOutData();
   const [channelFilter, setChannelFilter] = useState("all");
   const [skuFilter, setSkuFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   // Map sell-out rows to the shape this page expects
   const sales = rawData.map((d) => ({
@@ -35,6 +38,8 @@ const SalesExplorer = () => {
   const filtered = sales.filter((s) => {
     if (channelFilter !== "all" && s.channel !== channelFilter) return false;
     if (skuFilter !== "all" && s.sku !== skuFilter) return false;
+    if (dateFrom && s.date < dateFrom) return false;
+    if (dateTo && s.date > dateTo) return false;
     return true;
   });
 
@@ -58,7 +63,7 @@ const SalesExplorer = () => {
           <p className="text-muted-foreground text-sm">Filter and drill into sales by retailer, SKU, and time period.</p>
         </div>
         {hasData && (
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3 items-center">
             <Select value={channelFilter} onValueChange={setChannelFilter}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Channel" /></SelectTrigger>
               <SelectContent>
@@ -73,6 +78,13 @@ const SalesExplorer = () => {
                 {skus.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" placeholder="From" />
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" placeholder="To" />
+            {(channelFilter !== "all" || skuFilter !== "all" || dateFrom || dateTo) && (
+              <Button variant="ghost" size="sm" onClick={() => { setChannelFilter("all"); setSkuFilter("all"); setDateFrom(""); setDateTo(""); }}>
+                Clear
+              </Button>
+            )}
           </div>
         )}
       </div>

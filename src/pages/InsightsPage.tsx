@@ -187,7 +187,7 @@ const InsightsPage = () => {
     const dataContext = await buildDataContext();
 
     if (!dataContext) {
-      setReport({ executive_summary: "No data available. Please upload sell-out or campaign data first.", insights: [], recommendations: [] });
+      setReport(null);
       setGenerating(false);
       return;
     }

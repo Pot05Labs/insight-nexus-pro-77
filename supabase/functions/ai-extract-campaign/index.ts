@@ -1,9 +1,30 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const ALLOWED_ORIGINS = [
+  "https://signalstack.africa",
+  "https://www.signalstack.africa",
+];
+
+function getAllowedOrigin(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  if (
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.includes(".lovable.app") ||
+    origin.includes(".lovableproject.com") ||
+    origin.startsWith("http://localhost")
+  ) {
+    return origin;
+  }
+  return ALLOWED_ORIGINS[0];
+}
+
+function corsHeaders(req: Request) {
+  return {
+    "Access-Control-Allow-Origin": getAllowedOrigin(req),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 async function authenticateUser(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
@@ -25,14 +46,14 @@ async function authenticateUser(req: Request): Promise<string | null> {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) });
 
   try {
     const userId = await authenticateUser(req);
     if (!userId) {
       return new Response(
         JSON.stringify({ error: "Unauthorized. Please log in." }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 401, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
       );
     }
 
@@ -129,12 +150,12 @@ ${(slideTexts ?? "").substring(0, 12000)}`;
     if (!Array.isArray(parsed.rows)) throw new Error("No rows array in response");
 
     return new Response(JSON.stringify(parsed), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
     );
   }
 });
