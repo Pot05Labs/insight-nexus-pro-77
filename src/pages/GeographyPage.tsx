@@ -16,8 +16,9 @@ const GeographyPage = () => {
   const { data, loading } = useSellOutData();
   const hasData = data.length > 0;
 
-  // Top 5 stores
-  const revByStore = aggregate(data, (r) => r.store_location ?? "Unknown", (r) => Number(r.revenue ?? 0));
+  // Top 5 stores — exclude rows with no store name
+  const storesOnly = data.filter((r) => r.store_location && r.store_location.trim() !== "");
+  const revByStore = aggregate(storesOnly, (r) => r.store_location!.trim(), (r) => Number(r.revenue ?? 0));
   const storeData = Object.entries(revByStore).sort(([, a], [, b]) => b - a).slice(0, 5)
     .map(([store, revenue]) => ({ store, revenue: Math.round(revenue) }));
 
@@ -27,8 +28,9 @@ const GeographyPage = () => {
     "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape",
   ]);
 
-  // Infer region: validate region field against SA provinces, then try store lookup
-  const inferRegion = (r: typeof data[0]): string => {
+  // Infer region: validate region field against SA provinces, then try store lookup.
+  // Returns null if province cannot be determined — unmapped rows are excluded from geographic analysis.
+  const inferRegion = (r: typeof data[0]): string | null => {
     // 1. If region field is a valid SA province, use it directly
     if (r.region && VALID_PROVINCES.has(r.region)) return r.region;
 
@@ -46,17 +48,20 @@ const GeographyPage = () => {
       if (fromStore) return fromStore;
     }
 
-    // 4. Fallback — never return raw store names
-    return "Other";
+    // 4. Cannot determine province — return null (row excluded from geographic charts)
+    return null;
   };
 
-  // Revenue by province/region
-  const revByRegion = aggregate(data, inferRegion, (r) => Number(r.revenue ?? 0));
+  // Only include rows where province could be determined
+  const mappedData = data.filter((r) => inferRegion(r) !== null);
+
+  // Revenue by province/region — uses only mapped data
+  const revByRegion = aggregate(mappedData, (r) => inferRegion(r)!, (r) => Number(r.revenue ?? 0));
   const regionData = Object.entries(revByRegion).sort(([, a], [, b]) => b - a)
     .map(([region, revenue]) => ({ region, revenue: Math.round(revenue) }));
 
   // Province performance table
-  const unitsByRegion = aggregate(data, inferRegion, (r) => Number(r.units_sold ?? 0));
+  const unitsByRegion = aggregate(mappedData, (r) => inferRegion(r)!, (r) => Number(r.units_sold ?? 0));
   const provinceTable = regionData.map((r) => ({
     region: r.region,
     revenue: r.revenue,
@@ -66,8 +71,8 @@ const GeographyPage = () => {
 
   const dataSummary = `Top Stores: ${storeData.map((s) => `${s.store} (${fmtZAR(s.revenue)})`).join(", ")}. Regions: ${regionData.map((r) => `${r.region} (${fmtZAR(r.revenue)})`).join(", ")}.`;
 
-  // Data context line
-  const uniqueRegions = useMemo(() => new Set(data.map((r) => inferRegion(r)).filter(Boolean)).size, [data]);
+  // Data context line — only count mapped provinces
+  const uniqueRegions = useMemo(() => new Set(mappedData.map((r) => inferRegion(r)).filter(Boolean)).size, [mappedData]);
   const uniqueStores = useMemo(() => new Set(data.map((r) => r.store_location).filter(Boolean)).size, [data]);
   const dateRange = useMemo(() => {
     const dates = data.map((r) => r.date).filter(Boolean).sort();
@@ -94,10 +99,10 @@ const GeographyPage = () => {
     <div className="p-6 lg:p-8 space-y-6">
       <div>
         <h1 className="font-display text-2xl font-bold">Geography</h1>
-        <p className="text-muted-foreground text-sm">Geographic performance — regional context effects and store-level analysis.</p>
+        <p className="text-muted-foreground text-sm">Geographic performance — provincial context effects and store-level analysis.</p>
         {hasData && dateRange && (
           <p className="text-sm text-muted-foreground mt-1">
-            {uniqueRegions.toLocaleString()} regions &middot; {uniqueStores.toLocaleString()} stores &middot; {dateRange}
+            {uniqueRegions.toLocaleString()} provinces &middot; {uniqueStores.toLocaleString()} stores &middot; {dateRange}
           </p>
         )}
       </div>
