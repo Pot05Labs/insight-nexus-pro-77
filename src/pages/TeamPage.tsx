@@ -12,15 +12,15 @@ const TeamPage = () => {
       if (!user) return null;
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name, email")
-        .eq("id", user.id)
+        .select("full_name")
+        .eq("user_id", user.id)
         .single();
       const { data: roleData } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id);
       return {
-        email: user.email ?? profile?.email ?? "",
+        email: user.email ?? "",
         name: profile?.full_name ?? user.email?.split("@")[0] ?? "You",
         role: roleData?.[0]?.role ?? "owner",
       };

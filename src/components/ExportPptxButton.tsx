@@ -113,9 +113,7 @@ const ExportPptxButton = ({
 
 // ── Slide builders ──
 
-type Pres = InstanceType<
-  Awaited<ReturnType<typeof import("pptxgenjs")>>["default"]
->;
+type Pres = any;
 
 function addFooter(
   slide: ReturnType<Pres["addSlide"]>,
@@ -349,7 +347,7 @@ function buildBreakdownSlide(
 
   const dataRows = breakdown.slice(0, 12).map((row, i) => {
     const stripeFill = i % 2 === 1 ? { fill: { color: BRAND.tableStripe } } : {};
-    const cells = [
+    const cells: any[] = [
       { text: row.name, options: { color: BRAND.dark, ...stripeFill } },
       { text: row.value, options: { color: BRAND.dark, align: "right" as const, ...stripeFill } },
     ];
