@@ -22,6 +22,7 @@ export function useRealtimeUploads(userId: string | undefined) {
       .from("data_uploads")
       .select("id, file_name, status, row_count, created_at")
       .eq("user_id", userId)
+      .neq("status", "archived")
       .order("created_at", { ascending: false })
       .limit(50);
     setUploads(data ?? []);

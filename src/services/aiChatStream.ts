@@ -2,7 +2,8 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type Msg = { role: "user" | "assistant"; content: string };
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "https://ftikhauhpwphyceoisme.supabase.co";
+const CHAT_URL = `${SUPABASE_URL}/functions/v1/ai-chat`;
 
 export async function streamAiChat({
   messages,
@@ -34,7 +35,7 @@ export async function streamAiChat({
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0aWtoYXVocHdwaHljZW9pc21lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTYwNDUsImV4cCI6MjA4NzAzMjA0NX0.l0JtKLPc0KKMqlT7RRqLOgSboE9mqawNk0WYFmT1tT8",
       },
       body: JSON.stringify({ messages, context }),
       signal: controller.signal,

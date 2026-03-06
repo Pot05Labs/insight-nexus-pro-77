@@ -230,10 +230,14 @@ export async function seedDemoData(): Promise<{ sellOutRows: number; campaignRow
 }
 
 export async function hasDemoData(): Promise<boolean> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
   const { data } = await supabase
     .from("data_uploads")
     .select("id")
+    .eq("user_id", user.id)
     .eq("source_name", "SignalStack Demo")
+    .neq("status", "archived")
     .limit(1);
   return (data?.length ?? 0) > 0;
 }

@@ -36,12 +36,13 @@ export async function runLearningPipeline(projectId: string, userId: string): Pr
     // Step 1: Build data profile from sell_out_data
     const profile = await buildDataProfile(projectId);
     if (!profile) {
-      // No data left — clear stale intelligence so AI doesn't reference deleted data
+      // No data left — soft-delete stale intelligence so AI doesn't reference deleted data
       await (supabase as any)
         .from("client_intelligence")
-        .delete()
-        .eq("project_id", projectId);
-      console.info("[LearningPipeline] No data remaining — intelligence cleared for project:", projectId);
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("project_id", projectId)
+        .is("deleted_at", null);
+      console.info("[LearningPipeline] No data remaining — intelligence soft-deleted for project:", projectId);
       return;
     }
 

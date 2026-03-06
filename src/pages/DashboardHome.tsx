@@ -98,8 +98,6 @@ const DashboardHome = () => {
   const totalImpressions = campaigns.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
   const totalClicks = campaigns.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-  const cpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
-  const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
 
   // Canonical metrics from build spec
   const totalConversions = campaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
