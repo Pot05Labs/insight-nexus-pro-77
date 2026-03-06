@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { buildGeographySummary } from "@/services/insightsSnapshot";
 import { repairProvinceMappings } from "@/services/provinceRepair";
 import { getCurrentProjectContext } from "@/services/projectContext";
+import { computeClientKPIs, computeClientAgg } from "@/lib/client-aggregation";
 
 const GeographyPage = () => {
   // Raw data — kept for period comparison, province resolution, AI summary, province repair
@@ -45,29 +46,36 @@ const GeographyPage = () => {
   // Period-over-period comparison (needs raw row-level data)
   const comparison = usePeriodComparison(filteredData, campaigns, periodType);
 
-  // ── Chart data from server-side aggregation ────────────────────────
+  // ── Client-side fallback when RPCs are unavailable ──
+  const clientKpis = useMemo(() => computeClientKPIs(filteredData), [filteredData]);
+  const clientStoreAgg = useMemo(() => computeClientAgg(filteredData, "store_location", 5), [filteredData]);
+  const clientRegionAgg = useMemo(() => computeClientAgg(filteredData, "region", 20), [filteredData]);
 
-  // Top 5 stores — directly from server agg
+  // Effective data: prefer RPC, fall back to client-side
+  const effectiveKpis = kpis ?? clientKpis;
+  const effectiveStoreAgg = storeAgg ?? clientStoreAgg;
+  const effectiveRegionAgg = regionAgg ?? clientRegionAgg;
+
+  // ── Chart data (with fallback) ────────────────────────────────────
+
+  // Top 5 stores
   const storeData = useMemo(() => {
-    if (!storeAgg) return [];
-    return storeAgg
+    return effectiveStoreAgg
       .filter((r) => r.group_key && r.group_key.trim() !== "" && r.group_key !== "Unknown")
       .map((r) => ({ store: r.group_key, revenue: Math.round(r.total_revenue) }));
-  }, [storeAgg]);
+  }, [effectiveStoreAgg]);
 
-  // Province data — from server-side region aggregation, filtered to valid SA provinces
+  // Province data — filtered to valid SA provinces
   const regionData = useMemo(() => {
-    if (!regionAgg) return [];
-    return regionAgg
+    return effectiveRegionAgg
       .filter((r) => VALID_PROVINCE_SET.has(r.group_key))
       .sort((a, b) => b.total_revenue - a.total_revenue)
       .map((r) => ({ region: r.group_key, revenue: Math.round(r.total_revenue) }));
-  }, [regionAgg]);
+  }, [effectiveRegionAgg]);
 
-  // Province performance table (revenue + units + AOV) from server agg
+  // Province performance table (revenue + units + AOV)
   const provinceTable = useMemo(() => {
-    if (!regionAgg) return [];
-    return regionAgg
+    return effectiveRegionAgg
       .filter((r) => VALID_PROVINCE_SET.has(r.group_key))
       .sort((a, b) => b.total_revenue - a.total_revenue)
       .map((r) => ({
@@ -76,7 +84,7 @@ const GeographyPage = () => {
         units: Math.round(r.total_units),
         aov: r.total_units > 0 ? r.total_revenue / r.total_units : 0,
       }));
-  }, [regionAgg]);
+  }, [effectiveRegionAgg]);
 
   // ── Context stats ─────────────────────────────────────────────────
   const uniqueRegions = useMemo(
@@ -85,9 +93,8 @@ const GeographyPage = () => {
   );
 
   const uniqueStores = useMemo(() => {
-    if (!storeAgg) return 0;
-    return storeAgg.filter((r) => r.group_key && r.group_key.trim() !== "").length;
-  }, [storeAgg]);
+    return effectiveStoreAgg.filter((r) => r.group_key && r.group_key.trim() !== "").length;
+  }, [effectiveStoreAgg]);
 
   // Date range still comes from raw data since agg hooks don't return dates
   const dateRange = useMemo(() => {
@@ -100,16 +107,9 @@ const GeographyPage = () => {
     return first === last ? first : `${first} \u2013 ${last}`;
   }, [filteredData]);
 
-  // ── KPI values from server-side aggregation ───────────────────────
-  const totalRevenue = useMemo(
-    () => kpis?.total_revenue ?? regionData.reduce((s, r) => s + r.revenue, 0),
-    [kpis, regionData],
-  );
-
-  const totalUnits = useMemo(
-    () => kpis?.total_units ?? 0,
-    [kpis],
-  );
+  // ── KPI values (server-side RPC with client-side fallback) ────────
+  const totalRevenue = effectiveKpis.total_revenue;
+  const totalUnits = effectiveKpis.total_units;
 
   // ── Key finding ───────────────────────────────────────────────────
   const keyFinding = useMemo(() => {

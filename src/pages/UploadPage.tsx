@@ -243,8 +243,8 @@ const UploadPage = () => {
         queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
         queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
         queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-        queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
-        queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+        queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
+        queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
         queryClient.invalidateQueries({ queryKey: ["top-products"] });
         queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
         queryClient.invalidateQueries({ queryKey: ["filter-options"] });
@@ -355,8 +355,8 @@ const UploadPage = () => {
     queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
     queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
     queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-    queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
-    queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
     queryClient.invalidateQueries({ queryKey: ["top-products"] });
     queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
     queryClient.invalidateQueries({ queryKey: ["filter-options"] });
@@ -540,8 +540,8 @@ const UploadPage = () => {
       queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
       queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
       queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
-      queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
+      queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
       queryClient.invalidateQueries({ queryKey: ["top-products"] });
       queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
       queryClient.invalidateQueries({ queryKey: ["filter-options"] });

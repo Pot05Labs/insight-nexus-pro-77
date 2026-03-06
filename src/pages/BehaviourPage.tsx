@@ -17,6 +17,7 @@ import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axi
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { streamAiChat } from "@/services/aiChatStream";
 import { buildBehaviourSummary } from "@/services/insightsSnapshot";
+import { computeClientKPIs, computeClientAgg } from "@/lib/client-aggregation";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FULL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -96,34 +97,42 @@ const BehaviourPage = () => {
   // Period-over-period comparison (still uses raw data)
   const comparison = usePeriodComparison(filteredData, campaigns, periodType);
 
+  // ── Client-side fallback when RPCs are unavailable ──
+  const clientKpis = useMemo(() => computeClientKPIs(filteredData), [filteredData]);
+  const clientDowAgg = useMemo(() => computeClientAgg(filteredData, "day_of_week", 7), [filteredData]);
+  const clientCategoryAgg = useMemo(() => computeClientAgg(filteredData, "category", 6), [filteredData]);
+
+  // Effective data: prefer RPC, fall back to client-side
+  const effectiveKpis = kpis ?? clientKpis;
+  const effectiveDowAgg = dowAgg ?? clientDowAgg;
+  const effectiveCategoryAgg = categoryAgg ?? clientCategoryAgg;
+
   // Determine overall loading and data availability
   const isLoading = kpisLoading || dowLoading || categoryLoading;
-  const hasData = (kpis?.row_count ?? 0) > 0;
+  const hasData = data.length > 0 || (kpis?.row_count ?? 0) > 0;
 
-  // ── Day-of-week chart data from server-side aggregation ──
+  // ── Day-of-week chart data (with fallback) ──
 
   const dayData = useMemo(() => {
-    // Build a map from DOW number to revenue
     const dowMap: Record<string, number> = {};
-    for (const row of (dowAgg ?? [])) {
+    for (const row of effectiveDowAgg) {
       dowMap[row.group_key] = row.total_revenue;
     }
-    // Map 0=Sun through 6=Sat
     return DAYS.map((day, i) => ({
       day,
       revenue: Math.round(dowMap[String(i)] ?? 0),
     }));
-  }, [dowAgg]);
+  }, [effectiveDowAgg]);
 
-  // ── Category donut from server-side aggregation ──
+  // ── Category donut (with fallback) ──
 
   const compData = useMemo(() => {
-    const mapped = (categoryAgg ?? []).map((row) => ({
+    const mapped = effectiveCategoryAgg.map((row) => ({
       name: row.group_key,
       value: Math.round(row.total_revenue),
     }));
     return topNWithOther(mapped, 5, "value", "name");
-  }, [categoryAgg]);
+  }, [effectiveCategoryAgg]);
 
   // ── Date range from filtered raw data (for display) ──
 
@@ -148,9 +157,9 @@ const BehaviourPage = () => {
     return `Peak trading day: ${dayName} generates ${pct}% of revenue`;
   }, [dayData]);
 
-  // ── KPI values from server-side RPC ──
-  const totalRevenue = kpis?.total_revenue ?? 0;
-  const totalUnits = kpis?.total_units ?? 0;
+  // ── KPI values (server-side RPC with client-side fallback) ──
+  const totalRevenue = effectiveKpis.total_revenue;
+  const totalUnits = effectiveKpis.total_units;
   const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
 
   // AI summary still uses filtered raw data
@@ -161,7 +170,7 @@ const BehaviourPage = () => {
   const generateSegments = async () => {
     setSegLoading(true);
     setSegments([]);
-    const summary = `Day of week sales: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Categories: ${compData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${kpis?.row_count ?? filteredData.length}.`;
+    const summary = `Day of week sales: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Categories: ${compData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${effectiveKpis.row_count || filteredData.length}.`;
     let full = "";
     await streamAiChat({
       messages: [{
@@ -200,7 +209,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           </p>
           {dateRange && (
             <p className="text-sm text-muted-foreground mt-1">
-              {(kpis?.row_count ?? filteredData.length).toLocaleString()} transactions &middot; {dateRange}
+              {(effectiveKpis.row_count || filteredData.length).toLocaleString()} transactions &middot; {dateRange}
             </p>
           )}
         </div>

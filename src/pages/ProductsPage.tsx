@@ -19,6 +19,7 @@ import { useTopProducts } from "@/hooks/useTopProducts";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { buildProductsSummary } from "@/services/insightsSnapshot";
+import { computeClientKPIs, computeClientAgg, computeClientTopProducts } from "@/lib/client-aggregation";
 
 type SortKey = "product" | "revenue" | "units" | "avgPrice" | "marketShare";
 
@@ -53,11 +54,25 @@ const ProductsPage = () => {
     setPage(0);
   };
 
-  // --- KPI values from server-side RPC ---
-  const totalRevenue = kpis?.total_revenue ?? 0;
-  const totalUnits = kpis?.total_units ?? 0;
+  // ── Client-side fallback when RPCs are unavailable ──
+  const clientKpis = useMemo(() => computeClientKPIs(filteredData), [filteredData]);
+  const clientTop10 = useMemo(() => computeClientTopProducts(filteredData, 10), [filteredData]);
+  const clientAllProducts = useMemo(() => computeClientTopProducts(filteredData, 100), [filteredData]);
+  const clientCategoryAgg = useMemo(() => computeClientAgg(filteredData, "category", 6), [filteredData]);
+  const clientBrandAgg = useMemo(() => computeClientAgg(filteredData, "brand", 20), [filteredData]);
+
+  // Effective data: prefer RPC, fall back to client-side
+  const effectiveKpis = kpis ?? clientKpis;
+  const effectiveTop10 = top10Products ?? clientTop10;
+  const effectiveAllProducts = allProducts ?? clientAllProducts;
+  const effectiveCategoryAgg = categoryAgg ?? clientCategoryAgg;
+  const effectiveBrandAgg = brandAgg ?? clientBrandAgg;
+
+  // --- KPI values (server-side RPC with client-side fallback) ---
+  const totalRevenue = effectiveKpis.total_revenue;
+  const totalUnits = effectiveKpis.total_units;
   const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
-  const uniqueProductCount = kpis?.distinct_products ?? 0;
+  const uniqueProductCount = effectiveKpis.distinct_products;
 
   const kpiCards = useMemo(() => [
     { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
@@ -66,37 +81,37 @@ const ProductsPage = () => {
     { label: "Unique Products", value: uniqueProductCount.toString(), icon: Package, delta: comparison.products.deltaPct },
   ], [totalRevenue, totalUnits, avgOrderValue, uniqueProductCount, comparison]);
 
-  // Top 10 products mapped for bar chart
+  // Top 10 products mapped for bar chart (with fallback)
   const top10 = useMemo(() =>
-    (top10Products ?? []).map((p) => ({
+    effectiveTop10.map((p) => ({
       name: p.product_name,
       revenue: Math.round(p.total_revenue),
     })),
-    [top10Products]
+    [effectiveTop10]
   );
 
-  // Category donut from server-side aggregation
+  // Category donut (with fallback)
   const categoryData = useMemo(() => {
-    const mapped = (categoryAgg ?? []).map((row) => ({
+    const mapped = effectiveCategoryAgg.map((row) => ({
       name: row.group_key,
       value: Math.round(row.total_revenue),
     }));
     return topNWithOther(mapped, 5, "value", "name");
-  }, [categoryAgg]);
+  }, [effectiveCategoryAgg]);
 
-  // Brand rankings from server-side aggregation
+  // Brand rankings (with fallback)
   const brandTotalRevenue = useMemo(() =>
-    (brandAgg ?? []).reduce((s, b) => s + b.total_revenue, 0),
-    [brandAgg]
+    effectiveBrandAgg.reduce((s, b) => s + b.total_revenue, 0),
+    [effectiveBrandAgg]
   );
 
   const brandRankings = useMemo(() =>
-    (brandAgg ?? []).map((b) => ({
+    effectiveBrandAgg.map((b) => ({
       brand: b.group_key,
       revenue: b.total_revenue,
       marketShare: brandTotalRevenue > 0 ? (b.total_revenue / brandTotalRevenue) * 100 : 0,
     })),
-    [brandAgg, brandTotalRevenue]
+    [effectiveBrandAgg, brandTotalRevenue]
   );
 
   // Brand chart data (top 8)
@@ -108,9 +123,9 @@ const ProductsPage = () => {
     [brandRankings]
   );
 
-  // Full product table from server-side top products with sorting
+  // Full product table with sorting (with fallback)
   const productTable = useMemo(() => {
-    const arr = (allProducts ?? []).map((p) => ({
+    const arr = effectiveAllProducts.map((p) => ({
       product: p.product_name,
       revenue: p.total_revenue,
       units: p.total_units,
@@ -124,18 +139,18 @@ const ProductsPage = () => {
       return mul * ((a[sortKey] as number) - (b[sortKey] as number));
     });
     return arr;
-  }, [allProducts, sortKey, sortAsc]);
+  }, [effectiveAllProducts, sortKey, sortAsc]);
 
   // Determine overall loading state and data availability
   const isLoading = kpisLoading || top10Loading || categoryLoading || brandLoading || allProductsLoading;
-  const hasData = (kpis?.row_count ?? 0) > 0;
+  const hasData = rawData.length > 0 || (kpis?.row_count ?? 0) > 0;
 
   // AI summary still uses filtered raw data
   const dataSummary = useMemo(() => buildProductsSummary(filteredData)?.summary ?? "", [filteredData]);
 
   // Data context line from server-side KPIs
   const uniqueProducts = uniqueProductCount;
-  const uniqueBrands = useMemo(() => (brandAgg ?? []).length, [brandAgg]);
+  const uniqueBrands = useMemo(() => effectiveBrandAgg.length, [effectiveBrandAgg]);
   const dateRange = useMemo(() => {
     const dates = filteredData.map((r) => r.date).filter(Boolean).sort();
     if (dates.length === 0) return "";

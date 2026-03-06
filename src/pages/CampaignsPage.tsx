@@ -26,6 +26,7 @@ import { buildCampaignsSummary } from "@/services/insightsSnapshot";
 import { useCampaignKPIs } from "@/hooks/useCampaignKPIs";
 import { useCampaignAggregation } from "@/hooks/useAggregation";
 import { useCampaignFlights } from "@/hooks/useCampaignFlights";
+import { computeClientCampaignKPIs, computeClientCampaignAgg } from "@/lib/client-aggregation";
 
 type SortKey = "campaign_name" | "spend" | "impressions" | "clicks" | "conversions" | "revenue" | "roas";
 
@@ -59,12 +60,39 @@ const CampaignsPage = () => {
   const platformFiltered = platformFilter === "all" ? filteredCampaigns : filteredCampaigns.filter((c) => c.platform === platformFilter);
   const hasData = campaigns.length > 0;
 
-  // KPIs — from server-side aggregation
-  const totalSpend = campKpis?.total_spend ?? 0;
-  const totalImpressions = campKpis?.total_impressions ?? 0;
-  const totalClicks = campKpis?.total_clicks ?? 0;
-  const totalConversions = campKpis?.total_conversions ?? 0;
-  const totalRevenue = campKpis?.total_revenue ?? 0;
+  // ── Client-side fallback when RPCs are unavailable ──
+  const clientCampKpis = useMemo(() => computeClientCampaignKPIs(platformFiltered), [platformFiltered]);
+  const clientMonthlyAgg = useMemo(() => computeClientCampaignAgg(platformFiltered, "month", 50), [platformFiltered]);
+  const clientPlatformAgg = useMemo(() => computeClientCampaignAgg(filteredCampaigns, "platform", 6), [filteredCampaigns]);
+  const clientFlightRows = useMemo(() => {
+    const target = rpcPlatform ? platformFiltered : filteredCampaigns;
+    const m: Record<string, { platform: string; flight_start: string; flight_end: string; total_spend: number }> = {};
+    target.forEach((c) => {
+      const name = c.campaign_name ?? "Unnamed";
+      if (!m[name]) m[name] = { platform: c.platform ?? "Unknown", flight_start: c.flight_start ?? "", flight_end: c.flight_end ?? "", total_spend: 0 };
+      if (c.flight_start && (!m[name].flight_start || c.flight_start < m[name].flight_start)) m[name].flight_start = c.flight_start;
+      if (c.flight_end && (!m[name].flight_end || c.flight_end > m[name].flight_end)) m[name].flight_end = c.flight_end;
+      m[name].total_spend += Number(c.spend ?? 0);
+    });
+    return Object.entries(m)
+      .filter(([, v]) => v.flight_start)
+      .map(([campaign_name, v]) => ({ campaign_name, ...v }))
+      .sort((a, b) => b.total_spend - a.total_spend)
+      .slice(0, 20);
+  }, [filteredCampaigns, platformFiltered, rpcPlatform]);
+
+  // Effective data: prefer RPC, fall back to client-side
+  const effectiveCampKpis = campKpis ?? clientCampKpis;
+  const effectiveMonthlyAgg = monthlyAgg ?? clientMonthlyAgg;
+  const effectivePlatformAgg = platformAgg ?? clientPlatformAgg;
+  const effectiveFlightRows = flightRows ?? clientFlightRows;
+
+  // KPIs (server-side RPC with client-side fallback)
+  const totalSpend = effectiveCampKpis.total_spend;
+  const totalImpressions = effectiveCampKpis.total_impressions;
+  const totalClicks = effectiveCampKpis.total_clicks;
+  const totalConversions = effectiveCampKpis.total_conversions;
+  const totalRevenue = effectiveCampKpis.total_revenue;
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
@@ -77,10 +105,10 @@ const CampaignsPage = () => {
     { label: "ROAS", value: `${roas.toFixed(1)}x`, icon: DollarSign },
   ];
 
-  // Performance over time (monthly) — from server-side aggregation
+  // Performance over time (monthly, with fallback)
   const timeMap = useMemo(() => {
-    if (!monthlyAgg?.length) return [];
-    return [...monthlyAgg]
+    if (!effectiveMonthlyAgg.length) return [];
+    return [...effectiveMonthlyAgg]
       .sort((a, b) => a.group_key.localeCompare(b.group_key))
       .map((r) => ({
         month: r.group_key,
@@ -89,12 +117,12 @@ const CampaignsPage = () => {
         clicks: r.total_clicks,
         revenue: Math.round(r.total_revenue),
       }));
-  }, [monthlyAgg]);
+  }, [effectiveMonthlyAgg]);
 
-  // Platform breakdown — from server-side aggregation
+  // Platform breakdown (with fallback)
   const platformData = useMemo(() => {
-    if (!platformAgg?.length) return [];
-    return platformAgg.map((r) => ({
+    if (!effectivePlatformAgg.length) return [];
+    return effectivePlatformAgg.map((r) => ({
       platform: r.group_key,
       spend: Math.round(r.total_spend),
       impressions: r.total_impressions,
@@ -102,7 +130,7 @@ const CampaignsPage = () => {
       conversions: r.total_conversions,
       revenue: Math.round(r.total_revenue),
     }));
-  }, [platformAgg]);
+  }, [effectivePlatformAgg]);
 
   // Extract distinct brands from sell-out data for scoped attribution
   const sellOutBrands = useMemo(() => {
@@ -128,10 +156,10 @@ const CampaignsPage = () => {
     return computeCampaignAttribution(flights, filteredSellOut, sellOutBrands.length > 1 ? sellOutBrands : undefined);
   }, [filteredCampaigns, filteredSellOut, sellOutBrands]);
 
-  // Flight calendar — from server-side aggregation
+  // Flight calendar — from server-side aggregation with client-side fallback
   const flightData = useMemo(() => {
-    if (!flightRows?.length) return [];
-    return flightRows
+    if (!effectiveFlightRows?.length) return [];
+    return effectiveFlightRows
       .filter((f) => f.flight_start)
       .sort((a, b) => a.flight_start.localeCompare(b.flight_start))
       .map((f) => ({
@@ -140,7 +168,7 @@ const CampaignsPage = () => {
         end: f.flight_end || f.flight_start,
         platform: f.platform,
       }));
-  }, [flightRows]);
+  }, [effectiveFlightRows]);
 
   // Campaign-level table (needs raw data for campaign_name + platform grouping)
   const campaignTable = useMemo(() => {

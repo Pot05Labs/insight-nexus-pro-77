@@ -37,6 +37,8 @@ import { useCampaignKPIs } from "@/hooks/useCampaignKPIs";
 import { useSellOutAggregation } from "@/hooks/useAggregation";
 import { useCampaignAggregation } from "@/hooks/useAggregation";
 import { useFilterOptions } from "@/hooks/useFilterOptions";
+// Client-side fallback when RPCs are unavailable (e.g. migration not deployed)
+import { computeClientKPIs, computeClientAgg, computeClientCampaignKPIs, computeClientCampaignAgg } from "@/lib/client-aggregation";
 
 // ── Helpers for Key Findings ──
 
@@ -77,9 +79,15 @@ const DashboardHome = () => {
   const { data: retailerAgg } = useSellOutAggregation("retailer", filters, 20);
   const { data: filterOptions } = useFilterOptions();
 
+  // ── Client-side fallback KPIs (used when RPCs are unavailable) ──
+  const clientKpis = useMemo(() => computeClientKPIs(filteredData), [filteredData]);
+  const clientCampKpis = useMemo(() => computeClientCampaignKPIs(filteredCampaigns), [filteredCampaigns]);
+
+  // Effective KPIs: prefer RPC, fall back to client-side
+  const effectiveSoKpis = soKpis ?? clientKpis;
+  const effectiveCpKpis = cpKpis ?? clientCampKpis;
+
   // hasData/hasCampaigns: check BOTH raw data AND server-side RPCs.
-  // This prevents the empty state from showing when RPCs have data but
-  // the paginated raw fetch hasn't completed or returned a subset.
   const hasData = data.length > 0 || (soKpis?.row_count ?? 0) > 0;
   const hasCampaigns = campaigns.length > 0 || (cpKpis?.campaign_count ?? 0) > 0;
 
@@ -92,7 +100,7 @@ const DashboardHome = () => {
   const handleSellOutChange = useCallback(() => {
     refetch();
     queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
-    queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
     queryClient.invalidateQueries({ queryKey: ["top-products"] });
     queryClient.invalidateQueries({ queryKey: ["filter-options"] });
     queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
@@ -100,7 +108,7 @@ const DashboardHome = () => {
   const handleCampaignChange = useCallback(() => {
     refetchCampaigns();
     queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-    queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
     queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
     queryClient.invalidateQueries({ queryKey: ["filter-options"] });
   }, [refetchCampaigns, queryClient]);
@@ -121,11 +129,11 @@ const DashboardHome = () => {
     }
   };
 
-  // --- Sell-out KPIs (server-side via RPC) ---
-  const totalRevenue = soKpis?.total_revenue ?? 0;
-  const totalUnits = soKpis?.total_units ?? 0;
+  // --- Sell-out KPIs (server-side RPC with client-side fallback) ---
+  const totalRevenue = effectiveSoKpis.total_revenue;
+  const totalUnits = effectiveSoKpis.total_units;
   const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
-  const uniqueProducts = soKpis?.distinct_products ?? 0;
+  const uniqueProducts = effectiveSoKpis.distinct_products;
 
   const sellOutKpis = [
     { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
@@ -134,15 +142,15 @@ const DashboardHome = () => {
     { label: "Unique Products", value: uniqueProducts.toString(), icon: Package, delta: comparison.products.deltaPct },
   ];
 
-  // --- Campaign KPIs (server-side via RPC) ---
-  const totalSpend = cpKpis?.total_spend ?? 0;
-  const totalImpressions = cpKpis?.total_impressions ?? 0;
-  const totalClicks = cpKpis?.total_clicks ?? 0;
+  // --- Campaign KPIs (server-side RPC with client-side fallback) ---
+  const totalSpend = effectiveCpKpis.total_spend;
+  const totalImpressions = effectiveCpKpis.total_impressions;
+  const totalClicks = effectiveCpKpis.total_clicks;
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
   // Canonical metrics from build spec
-  const totalConversions = cpKpis?.total_conversions ?? 0;
-  const totalCampaignRevenue = cpKpis?.total_revenue ?? 0;
+  const totalConversions = effectiveCpKpis.total_conversions;
+  const totalCampaignRevenue = effectiveCpKpis.total_revenue;
   // ROAS uses campaign-attributed revenue, NOT total sell-out revenue.
   // If no campaign revenue attribution exists, roas stays 0 and displays as "---".
   const roas = totalSpend > 0 && totalCampaignRevenue > 0 ? totalCampaignRevenue / totalSpend : 0;
@@ -189,34 +197,48 @@ const DashboardHome = () => {
     { label: "CPS", value: fmtZAR(cps), icon: CircleDollarSign },
   ];
 
-  // Top brands by revenue (server-side aggregation)
+  // ── Client-side fallback aggregations (used when RPCs are unavailable) ──
+  const clientBrandAgg = useMemo(() => computeClientAgg(filteredData, "brand", 8), [filteredData]);
+  const clientCategoryAgg = useMemo(() => computeClientAgg(filteredData, "category", 8), [filteredData]);
+  const clientMonthlyRevenue = useMemo(() => computeClientAgg(filteredData, "month", 36), [filteredData]);
+  const clientMonthlySpend = useMemo(() => computeClientCampaignAgg(filteredCampaigns, "month", 36), [filteredCampaigns]);
+  const clientRetailerAgg = useMemo(() => computeClientAgg(filteredData, "retailer", 20), [filteredData]);
+
+  // Effective aggregations: prefer RPC, fall back to client-side
+  const effectiveBrandAgg = brandAgg ?? clientBrandAgg;
+  const effectiveCategoryAgg = categoryAgg ?? clientCategoryAgg;
+  const effectiveMonthlyRevenue = monthlyRevenue ?? clientMonthlyRevenue;
+  const effectiveMonthlySpend = monthlySpend ?? clientMonthlySpend;
+  const effectiveRetailerAgg = retailerAgg ?? clientRetailerAgg;
+
+  // Top brands by revenue (server-side aggregation with client-side fallback)
   const brandDataRaw = useMemo(
-    () => (brandAgg ?? []).map((r) => ({ brand: r.group_key, revenue: Math.round(r.total_revenue) })),
-    [brandAgg],
+    () => effectiveBrandAgg.map((r) => ({ brand: r.group_key, revenue: Math.round(r.total_revenue) })),
+    [effectiveBrandAgg],
   );
   const brandData = useMemo(
     () => topNWithOther(brandDataRaw, 6, "revenue", "brand"),
     [brandDataRaw],
   );
 
-  // Category analysis (server-side aggregation)
+  // Category analysis (server-side aggregation with client-side fallback)
   const categoryDataRaw = useMemo(
-    () => (categoryAgg ?? []).map((r) => ({ category: r.group_key, revenue: Math.round(r.total_revenue) })),
-    [categoryAgg],
+    () => effectiveCategoryAgg.map((r) => ({ category: r.group_key, revenue: Math.round(r.total_revenue) })),
+    [effectiveCategoryAgg],
   );
   const categoryData = useMemo(
     () => topNWithOther(categoryDataRaw, 6, "revenue", "category"),
     [categoryDataRaw],
   );
 
-  // Revenue + Spend time series (server-side aggregation, combined into unified series)
+  // Revenue + Spend time series (server-side aggregation with client-side fallback)
   const timeData = useMemo(() => {
     const revenueMap: Record<string, number> = {};
-    for (const r of monthlyRevenue ?? []) {
+    for (const r of effectiveMonthlyRevenue) {
       revenueMap[r.group_key] = Math.round(r.total_revenue);
     }
     const spendMap: Record<string, number> = {};
-    for (const r of monthlySpend ?? []) {
+    for (const r of effectiveMonthlySpend) {
       spendMap[r.group_key] = Math.round(r.total_spend);
     }
     const allMonths = [...new Set([...Object.keys(revenueMap), ...Object.keys(spendMap)])].sort();
@@ -225,7 +247,7 @@ const DashboardHome = () => {
       revenue: revenueMap[month] ?? 0,
       spend: spendMap[month] ?? 0,
     }));
-  }, [monthlyRevenue, monthlySpend]);
+  }, [effectiveMonthlyRevenue, effectiveMonthlySpend]);
 
   // ── Data Context Line (uses server-side RPC for accurate counts) ──
   // Previously used `data.length` from the paginated raw fetch (max 50K rows
@@ -235,9 +257,9 @@ const DashboardHome = () => {
   const dataContext = useMemo(() => {
     if (!hasData) return null;
 
-    // Prefer server-side counts (accurate across millions of rows)
-    const rowCount = soKpis?.row_count ?? data.length;
-    const retailerCount = soKpis?.distinct_retailers ?? new Set(data.map((r) => r.retailer).filter(Boolean)).size;
+    // Prefer server-side counts; fall back to client-side counts
+    const rowCount = effectiveSoKpis.row_count;
+    const retailerCount = effectiveSoKpis.distinct_retailers;
 
     // Date range: prefer server-side MIN/MAX from get_filter_options
     let dateRange: string | null = null;
@@ -263,15 +285,15 @@ const DashboardHome = () => {
       transactionCount: rowCount,
       dateRange,
     };
-  }, [hasData, soKpis, filterOptions, data]);
+  }, [hasData, effectiveSoKpis, filterOptions, data]);
 
   // ── Auto-Computed Key Findings (using server-side aggregation data) ──
   const keyFindings = useMemo<KeyFinding[]>(() => {
-    if (!hasData && !soKpis) return [];
+    if (!hasData) return [];
     const findings: KeyFinding[] = [];
 
     // (a) Top retailer by revenue share
-    const sortedRetailers = retailerAgg ?? [];
+    const sortedRetailers = effectiveRetailerAgg;
     if (sortedRetailers.length > 0 && totalRevenue > 0) {
       const top = sortedRetailers[0];
       const pct = ((top.total_revenue / totalRevenue) * 100).toFixed(0);
@@ -294,7 +316,7 @@ const DashboardHome = () => {
     }
 
     // (c) Revenue trend -- last 3 months (from server-side monthly aggregation)
-    const revenueMonths = (monthlyRevenue ?? [])
+    const revenueMonths = effectiveMonthlyRevenue
       .map((r) => [r.group_key, r.total_revenue] as [string, number])
       .sort(([a], [b]) => a.localeCompare(b));
 

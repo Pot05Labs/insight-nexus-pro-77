@@ -17,6 +17,7 @@ import { useSellOutKPIs } from "@/hooks/useSellOutKPIs";
 import { chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, chartTooltipStyle } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { buildRetailersSummary } from "@/services/insightsSnapshot";
+import { computeClientKPIs, computeClientAgg } from "@/lib/client-aggregation";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 
@@ -51,11 +52,21 @@ const RetailersPage = () => {
     setPage(0);
   };
 
-  // ── KPI values from server-side KPIs ──────────────────────────────
-  const totalRevenue = kpis?.total_revenue ?? 0;
-  const totalUnits = kpis?.total_units ?? 0;
+  // ── Client-side fallback when RPCs are unavailable ──
+  const clientKpis = useMemo(() => computeClientKPIs(data), [data]);
+  const clientRetailerChartAgg = useMemo(() => computeClientAgg(data, "retailer", 8), [data]);
+  const clientRetailerFullAgg = useMemo(() => computeClientAgg(data, "retailer", 100), [data]);
+
+  // Effective data: prefer RPC, fall back to client-side
+  const effectiveKpis = kpis ?? clientKpis;
+  const effectiveRetailerChartAgg = retailerChartAgg ?? clientRetailerChartAgg;
+  const effectiveRetailerFullAgg = retailerFullAgg ?? clientRetailerFullAgg;
+
+  // ── KPI values (server-side RPC with client-side fallback) ──
+  const totalRevenue = effectiveKpis.total_revenue;
+  const totalUnits = effectiveKpis.total_units;
   const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
-  const uniqueProductCount = kpis?.distinct_products ?? 0;
+  const uniqueProductCount = effectiveKpis.distinct_products;
 
   const kpiCards = useMemo(() => [
     { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
@@ -64,18 +75,17 @@ const RetailersPage = () => {
     { label: "Unique Products", value: uniqueProductCount.toString(), icon: Package, delta: comparison.products.deltaPct },
   ], [totalRevenue, totalUnits, avgOrderValue, uniqueProductCount, comparison]);
 
-  // ── Chart data from server-side aggregation (top 8 retailers) ─────
+  // ── Chart data (with fallback) ────────────────────────────────────
   const chartData = useMemo(() => {
-    if (!retailerChartAgg) return [];
-    return retailerChartAgg.map((r) => ({
+    return effectiveRetailerChartAgg.map((r) => ({
       retailer: r.group_key,
       revenue: Math.round(r.total_revenue),
     }));
-  }, [retailerChartAgg]);
+  }, [effectiveRetailerChartAgg]);
 
-  // ── Table data — uses server agg for revenue/units, raw data for store counts ──
+  // ── Table data — uses agg for revenue/units, raw data for store counts ──
   const tableData = useMemo(() => {
-    if (!retailerFullAgg) return [];
+    if (effectiveRetailerFullAgg.length === 0) return [];
 
     // Build store count map from raw data (still needs row-level data)
     const storeCounts: Record<string, Set<string>> = {};
@@ -85,11 +95,11 @@ const RetailersPage = () => {
       if (r.store_location) storeCounts[ret].add(r.store_location);
     });
 
-    const avgRevenue = retailerFullAgg.length > 0
-      ? retailerFullAgg.reduce((s, r) => s + r.total_revenue, 0) / retailerFullAgg.length
+    const avgRevenue = effectiveRetailerFullAgg.length > 0
+      ? effectiveRetailerFullAgg.reduce((s, r) => s + r.total_revenue, 0) / effectiveRetailerFullAgg.length
       : 1;
 
-    const arr = retailerFullAgg.map((r) => ({
+    const arr = effectiveRetailerFullAgg.map((r) => ({
       retailer: r.group_key,
       revenue: r.total_revenue,
       units: r.total_units,
@@ -104,7 +114,7 @@ const RetailersPage = () => {
       return mul * ((a[sortKey] as number) - (b[sortKey] as number));
     });
     return arr;
-  }, [retailerFullAgg, data, sortKey, sortAsc]);
+  }, [effectiveRetailerFullAgg, data, sortKey, sortAsc]);
 
   // Radar data for benchmarking (top 6 retailers, normalized dimensions)
   const radarData = useMemo(() => {
@@ -135,7 +145,7 @@ const RetailersPage = () => {
   const dataSummary = useMemo(() => buildRetailersSummary(data)?.summary ?? "", [data]);
 
   // Data context line
-  const uniqueRetailers = useMemo(() => kpis?.distinct_retailers ?? new Set(data.map((r) => r.retailer).filter(Boolean)).size, [kpis, data]);
+  const uniqueRetailers = useMemo(() => effectiveKpis.distinct_retailers, [effectiveKpis]);
   const uniqueStores = useMemo(() => new Set(data.map((r) => r.store_location).filter(Boolean)).size, [data]);
   const dateRange = useMemo(() => {
     const dates = data.map((r) => r.date).filter(Boolean).sort();
