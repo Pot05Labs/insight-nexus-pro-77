@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
 import { GlobalFilterProvider } from "@/contexts/GlobalFilterContext";
+import { OrgProvider } from "@/contexts/OrgContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -57,6 +58,7 @@ const queryClient = new QueryClient({
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <OrgProvider>
       <NotificationsProvider>
       <TooltipProvider>
         <Toaster />
@@ -94,6 +96,7 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
       </NotificationsProvider>
+      </OrgProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

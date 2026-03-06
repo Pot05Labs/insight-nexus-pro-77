@@ -21,6 +21,8 @@ import {
   isNoDataReport,
   selectLatestStrategicReport,
 } from "@/services/insightsReport";
+import { useOrg } from "@/contexts/OrgContext";
+import { getBrandForOrg, POT_STRATEGY_BRAND } from "@/lib/report-brand-config";
 
 const InsightsPage = () => {
   const [loading, setLoading] = useState(true);
@@ -28,6 +30,13 @@ const InsightsPage = () => {
   const [generating, setGenerating] = useState(false);
   const { data: sellOutData, loading: sellOutLoading } = useSellOutData();
   const { data: campaignData, loading: campaignLoading } = useCampaignData();
+
+  // Resolve brand config from current org (default: Pot Strategy)
+  const { currentOrg } = useOrg();
+  const reportBrand = useMemo(
+    () => currentOrg ? getBrandForOrg(currentOrg.slug) : POT_STRATEGY_BRAND,
+    [currentOrg],
+  );
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -286,23 +295,9 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values,
             {generating ? "Generating..." : "Regenerate"}
           </Button>
           <ExportPptxButton
-            filename="SignalStack-Insights"
-            data={{
-              title: "AI Strategic Insights",
-              subtitle: "SignalStack by Pot Labs",
-              kpis: report?.insights?.slice(0, 4).map((ins) => ({
-                label: ins.title,
-                value: ins.data_point,
-              })) ?? [],
-              findings: [
-                ...(report?.executive_summary ? [report.executive_summary] : []),
-                ...(report?.insights?.map((ins) => `${ins.title}: ${ins.insight}`) ?? []),
-              ],
-              breakdown: report?.recommendations?.map((rec) => ({
-                name: rec.title,
-                value: rec.description,
-              })),
-            }}
+            filename="Strategic-Insights"
+            report={report}
+            brand={reportBrand}
           />
           <Button variant="outline" size="sm" onClick={shareToWhatsApp} disabled={!report}>
             <MessageSquare className="h-3.5 w-3.5 mr-1.5" />Send to WhatsApp
