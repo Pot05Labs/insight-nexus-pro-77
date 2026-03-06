@@ -4,6 +4,7 @@
 /* ------------------------------------------------------------------ */
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 /**
  * All auditable actions in SignalStack.
@@ -57,7 +58,7 @@ export async function audit({ action, meta, resourceId, resourceType }: AuditPay
     await supabase.from("activity_log").insert({
       user_id: session.user.id,
       action,
-      metadata: meta ?? null,
+      metadata: (meta as Json) ?? null,
       resource_id: resourceId ?? null,
       resource_type: resourceType ?? null,
     });

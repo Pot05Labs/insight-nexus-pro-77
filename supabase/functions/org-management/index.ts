@@ -210,8 +210,8 @@ Deno.serve(async (req) => {
           return errorResp(`Organization has reached its member limit (${org.max_members})`);
         }
 
-        // Check if user is already a member
-        const { data: existingUser } = await supabase
+        // Check if user is already a member (auth.users query may fail with RLS)
+        const { data: _existingUser } = await supabase
           .from("auth.users")
           .select("id")
           .eq("email", email)

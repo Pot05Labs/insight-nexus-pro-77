@@ -181,6 +181,11 @@ type Pres = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Slide = any;
 
+/** Concrete insight item type (avoids NonNullable inference issues) */
+type InsightItem = { title: string; insight: string; data_point: string; implication: string };
+/** Concrete recommendation item type */
+type RecItem = { title: string; description: string };
+
 /* ------------------------------------------------------------------ */
 /*  Shared layout helpers                                              */
 /* ------------------------------------------------------------------ */
@@ -402,12 +407,12 @@ function buildSummarySlide(
 function buildInsightSlides(
   pres: Pres,
   brand: ReportBrandConfig,
-  insights: NonNullable<ReportContent["insights"]>,
+  insights: InsightItem[],
   badgePng: string,
 ) {
   // Group insights into slides of 2
   const perSlide = 2;
-  const pages = [];
+  const pages: InsightItem[][] = [];
   for (let i = 0; i < insights.length; i += perSlide) {
     pages.push(insights.slice(i, i + perSlide));
   }
@@ -526,7 +531,7 @@ function buildInsightSlides(
 function buildRecommendationsSlide(
   pres: Pres,
   brand: ReportBrandConfig,
-  recommendations: NonNullable<ReportContent["recommendations"]>,
+  recommendations: RecItem[],
   badgePng: string,
 ) {
   const slide = pres.addSlide();

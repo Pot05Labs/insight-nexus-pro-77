@@ -97,7 +97,7 @@ export function toDate(raw: unknown): string | null {
 
   // DD/MM/YYYY or DD-MM-YYYY (South African priority -- MUST run before new Date())
   // new Date("01/03/2024") interprets as MM/DD (Jan 3) in V8, but SA means DD/MM (1 Mar).
-  const dmyMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+  const dmyMatch = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (dmyMatch) {
     const [, first, second, yyyy] = dmyMatch;
     let day = parseInt(first);
@@ -119,7 +119,7 @@ export function toDate(raw: unknown): string | null {
   }
 
   // DD/MM/YY (2-digit year, common in SA retail exports)
-  const dmyShortMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2})$/);
+  const dmyShortMatch = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2})$/);
   if (dmyShortMatch) {
     const [, first, second, yy] = dmyShortMatch;
     let day = parseInt(first);
