@@ -1,0 +1,399 @@
+/* ------------------------------------------------------------------ */
+/*  SA Store → Province Lookup — Deno-compatible version               */
+/*  Maps shopping centre / store names to their SA province.           */
+/*  Mirrors src/lib/sa-store-provinces.ts for server-side use          */
+/* ------------------------------------------------------------------ */
+
+const GP = "Gauteng";
+const WC = "Western Cape";
+const KZN = "KwaZulu-Natal";
+const EC = "Eastern Cape";
+const MP = "Mpumalanga";
+const LP = "Limpopo";
+const FS = "Free State";
+const NW = "North West";
+const NC = "Northern Cape";
+
+export const SA_PROVINCES = [GP, WC, KZN, EC, FS, LP, MP, NW, NC] as const;
+export const VALID_PROVINCE_SET = new Set<string>(SA_PROVINCES);
+
+const PROVINCE_ALIASES: Record<string, string> = {
+  gauteng: GP, gp: GP,
+  westerncape: WC, wc: WC,
+  kwazulunatal: KZN, kzn: KZN,
+  easterncape: EC, ec: EC,
+  freestate: FS, fs: FS,
+  limpopo: LP, lp: LP,
+  mpumalanga: MP, mp: MP,
+  northwest: NW, nw: NW,
+  northerncape: NC, nc: NC,
+};
+
+/* ------------------------------------------------------------------ */
+/*  Store → Province map (normalised keys)                              */
+/* ------------------------------------------------------------------ */
+
+const STORE_PROVINCE_MAP: Record<string, string> = {
+  // Gauteng
+  "accesspark": GP, "atlasmalbboksburg": GP, "atlasmall": GP,
+  "bassonianshoppingcentre": GP, "bassoniashoppingcentre": GP,
+  "bedfordcentre": GP, "bedfordview": GP, "benmoreshoppingcentre": GP,
+  "benmoresquare": GP, "benmore": GP, "benonilakesideretail": GP,
+  "benonilakeside": GP, "benonitownsquare": GP, "boksburgeast": GP,
+  "boulders": GP, "bouldersshoppingcentre": GP, "braamfontein": GP,
+  "bryanpark": GP, "bryanston": GP, "bryanstonshoppingcentre": GP,
+  "brooklynmall": GP, "brooklyn": GP, "brooklynbridge": GP,
+  "broadacresshoppingcentre": GP, "broadacres": GP, "carltoncentre": GP,
+  "castlegatemall": GP, "cedarsquare": GP, "centuriongate": GP,
+  "centurionmall": GP, "centurionlifestylecentre": GP, "clearwatermall": GP,
+  "clearwater": GP, "colonnadeshoppingcentre": GP, "cradlestonemall": GP,
+  "cradlestone": GP, "crestashoppingcentre": GP, "cresta": GP,
+  "dainfernsquare": GP, "dainfern": GP, "delcairn": GP, "designquarter": GP,
+  "eastgateshoppingcentre": GP, "eastgate": GP, "eastrandgalleria": GP,
+  "eastrandmall": GP, "eastrandretail": GP, "eldo": GP, "eldoradopark": GP,
+  "emmarentia": GP, "farrarmere": GP, "floraunion": GP, "flora": GP,
+  "fourwaysmall": GP, "fourways": GP, "fourwayscrossing": GP,
+  "gardensmall": GP, "garsfontein": GP, "glenfair": GP, "glenvista": GP,
+  "greenstoneshoppingcentre": GP, "greenstone": GP,
+  "greyowlvillageshoppingcentre": GP, "hatfieldplaza": GP, "hatfield": GP,
+  "hazeldean": GP, "highveld": GP, "highveldmall": GP, "hyde": GP,
+  "hydepark": GP, "hydeparkcorner": GP, "illovomall": GP, "illovo": GP,
+  "irenevillagemall": GP, "irene": GP, "johannesburgcbd": GP, "jhb": GP,
+  "jeppe": GP, "killarneymall": GP, "killarney": GP,
+  "kolonnadeshoppingcentre": GP, "kolonnade": GP,
+  "kyalamicornershoppingcentre": GP, "kyalami": GP, "kyalamicorner": GP,
+  "lakesideretailpark": GP, "lakesidemall": GP, "lifestylecrossing": GP,
+  "lilliesquartersshoppingmall": GP, "lonehill": GP,
+  "lonehillshoppingcentre": GP, "lynnwoodbridge": GP, "lynnwood": GP,
+  "lynnwoodlane": GP, "magaliesview": GP, "mallofafrica": GP,
+  "mallatreds": GP, "mallreds": GP, "malvernpark": GP, "malvern": GP,
+  "maponyamallsoweto": GP, "maponyamall": GP, "maponya": GP,
+  "megacity": GP, "melrosearch": GP, "melrose": GP, "menlynpark": GP,
+  "menlyn": GP, "menlynretailpark": GP, "menlynmaine": GP,
+  "menlopark": GP, "meyersdal": GP, "midrand": GP, "midstream": GP,
+  "midstreamestate": GP, "montana": GP, "montanashoppingcentre": GP,
+  "montecasinoshoppingcentre": GP, "montecasino": GP,
+  "morningsideshoppingcentre": GP, "morningside": GP, "moreleta": GP,
+  "morelatapark": GP, "neighbourhoodsquare": GP, "newmarket": GP,
+  "newmarketmall": GP, "newtown": GP, "nicolway": GP, "ninapark": GP,
+  "noordheuwel": GP, "northcliff": GP, "northgate": GP, "northgatemall": GP,
+  "norwood": GP, "norwoodmall": GP, "ormonde": GP, "olivedale": GP,
+  "parkview": GP, "parkandshop": GP, "parkshop": GP, "parktown": GP,
+  "parktownquarter": GP, "piazza": GP, "piazzashoppingcentre": GP,
+  "pineslopes": GP, "pineslopesshoppingcentre": GP, "randburg": GP,
+  "randburgcbd": GP, "rosebank": GP, "rosebankmall": GP,
+  "riversquarevereeniging": GP, "riversidevanderbijlpark": GP,
+  "rynfield": GP, "rynfieldterrace": GP, "saltatower": GP, "salta": GP,
+  "sandtoncity": GP, "sandtoncityshoppingmall": GP, "sandton": GP,
+  "silverfields": GP, "silverlakes": GP, "silveroakscrossing": GP,
+  "southgate": GP, "southgatemall": GP, "squareatfarrarmere": GP,
+  "springs": GP, "springsmall": GP, "stationsquare": GP,
+  "stoneridgemall": GP, "stoneridge": GP, "strubens": GP,
+  "strubensvallley": GP, "strubensvalley": GP, "sunwardpark": GP,
+  "sunnypark": GP, "sunnyside": GP, "thecolonnade": GP, "thefalls": GP,
+  "theglenshoppingcentre": GP, "theglen": GP, "glen": GP,
+  "thegrove": GP, "thevillagesquare": GP, "thezoneatrosebank": GP,
+  "thezone": GP, "townsquare": GP, "valleyview": GP,
+  "vanderbijlpark": GP, "vereeniging": GP, "villagemallpretoria": GP,
+  "waterfall": GP, "waterfallcorner": GP, "waterfallmall": GP,
+  "wonderpark": GP, "wonderboom": GP, "woodbridgesquaremall": GP,
+  "woodlandsboulevard": GP, "woodmeadretailpark": GP, "woodmead": GP,
+  "traderoutemall": GP, "traderoute": GP, "mallofthesouth": GP,
+  "carnival": GP, "carnivalmall": GP, "mallatcarnival": GP,
+  "mallcarnival": GP, "crownmines": GP, "westgatemall": GP,
+  "westgate": GP, "westgateshoppingcentre": GP, "wwdarkstore": GP,
+  "darkstore": GP,
+
+  // Western Cape
+  "bayside": WC, "baysidecentre": WC, "belair": WC, "bellville": WC,
+  "bellvillecentre": WC, "birkenheadmekbosstrand": WC, "blueroute": WC,
+  "blueroutemall": WC, "brackenfell": WC, "canalwalk": WC,
+  "canalwalkshoppingcentre": WC, "capegate": WC,
+  "capegateshoppingcentre": WC, "capetownstation": WC,
+  "capetowncbd": WC, "capetown": WC, "cavendish": WC,
+  "cavendishsquare": WC, "centurycity": WC, "claremont": WC,
+  "claremontretail": WC, "constantia": WC, "constantiavillage": WC,
+  "constantiaemporium": WC, "durbanville": WC, "durbanvillehills": WC,
+  "eden": WC, "edenmeander": WC, "eikestadmall": WC, "franschoek": WC,
+  "franschhoek": WC, "gardenroute": WC, "gardenroutemall": WC,
+  "gardenscentre": WC, "gardens": WC, "georgecbd": WC, "georgemall": WC,
+  "gordonsbay": WC, "grandwest": WC, "greenpoint": WC, "hermanus": WC,
+  "houtbay": WC, "ipicshoppingcentresoneike": WC, "jeancrossing": WC,
+  "kenilworthcentre": WC, "kenilworth": WC, "knysnamall": WC,
+  "knysna": WC, "kuilsriver": WC, "lagunamall": WC, "langeberg": WC,
+  "langebergmall": WC, "libertas": WC, "longbeachmall": WC,
+  "longbeach": WC, "malmesbury": WC, "milnerton": WC,
+  "mitchellsplain": WC, "mountainmillworcester": WC, "muizenberg": WC,
+  "n1city": WC, "n1value": WC, "northgatewc": WC, "observatory": WC,
+  "oudtshoorn": WC, "paarlmall": WC, "paarl": WC, "palmyra": WC,
+  "paradisemall": WC, "pinelandsct": WC, "pinelands": WC,
+  "plattekloofvillage": WC, "plattekloof": WC, "plettenbergbay": WC,
+  "plettenberg": WC, "saldanha": WC, "seapoint": WC, "simonstown": WC,
+  "somerset": WC, "somersetmall": WC, "somersetwest": WC,
+  "stellenboschsquare": WC, "stellenbosch": WC, "strand": WC,
+  "strandstreet": WC, "swellendam": WC, "tablebaymall": WC,
+  "tablebay": WC, "tableview": WC, "tokai": WC, "tokaivillage": WC,
+  "tygervallyshoppingcentre": WC, "tygervalley": WC,
+  "vaawaterfront": WC, "vawaterfront": WC, "vandawaterfront": WC,
+  "waterfront": WC, "waterstone": WC, "waterstonevillage": WC,
+  "wellington": WC, "willowbridge": WC,
+  "willowbridgeshoppingcentre": WC, "whalecoast": WC,
+  "thegreeneryshopping": WC, "thegreeneryshoppingcentre": WC,
+  "wynberg": WC, "worcester": WC,
+
+  // KwaZulu-Natal
+  "amajubamall": KZN, "amanzimtoti": KZN,
+  "ballitolifestylecentre": KZN, "ballitofunction": KZN,
+  "ballitojunction": KZN, "ballito": KZN,
+  "cascadesshoppingcentre": KZN, "cascades": KZN, "chatsworth": KZN,
+  "chatsworthcentre": KZN, "durbancentral": KZN, "durban": KZN,
+  "durbannorth": KZN, "empangeni": KZN, "galleria": KZN,
+  "galleriamall": KZN, "gatewaymall": KZN, "gateway": KZN,
+  "gatewayshoppingcentre": KZN, "greenwood": KZN, "greenwoodpark": KZN,
+  "hayfields": KZN, "hayfieldsmall": KZN, "hillcrestboulevard": KZN,
+  "hillcrest": KZN, "hilton": KZN, "howick": KZN, "kloof": KZN,
+  "laluciamall": KZN, "lalucia": KZN, "liberty": KZN,
+  "libertymidlands": KZN, "libertymall": KZN, "marquard": KZN,
+  "midlandsmall": KZN, "midlands": KZN, "morningsidekzn": KZN,
+  "morningsidedurban": KZN, "mtedgecombe": KZN,
+  "musgravecentre": KZN, "musgrave": KZN, "newcastle": KZN,
+  "newcastlemall": KZN, "pavillion": KZN,
+  "pavillionshoppingcentre": KZN, "pavilion": KZN, "pavilionmall": KZN,
+  "pietermaritzburg": KZN, "pietermaritzburgcbd": KZN, "pinetown": KZN,
+  "pmb": KZN, "richardsbay": KZN, "richardsbaymall": KZN,
+  "scottburgh": KZN, "shellybeach": KZN, "shellycentre": KZN,
+  "southcoastmall": KZN, "springfield": KZN, "springfieldpark": KZN,
+  "stanger": KZN, "stangermall": KZN, "suncoastcasino": KZN,
+  "umhlanga": KZN, "umhlangaarch": KZN, "umhlangapromenade": KZN,
+  "umhlangaridge": KZN, "umhlangarocks": KZN, "umdloti": KZN,
+  "umgeni": KZN, "uvongo": KZN, "westville": KZN, "westvillemall": KZN,
+
+  // Eastern Cape
+  "baywestmallec": EC, "baywest": EC, "baywestpe": EC,
+  "baywestportelizabeth": EC, "baywestgqeberha": EC, "baywestmall": EC,
+  "boardwalk": EC, "boardwalkmall": EC, "buffalo": EC,
+  "buffalomall": EC, "eastlondon": EC, "eastlondoncbd": EC,
+  "gqeberha": EC, "grahamstown": EC, "greenacresshoppingcentre": EC,
+  "greenacres": EC, "hemingways": EC, "hemingwaysmall": EC,
+  "jeffreysbay": EC, "jeffreys": EC, "kingwilliamstown": EC,
+  "makhanda": EC, "mthatha": EC, "moffett": EC, "moffettretail": EC,
+  "newtonpark": EC, "northend": EC, "peppergrove": EC,
+  "portelizabeth": EC, "portelizabethcbd": EC, "queenstowncbd": EC,
+  "queenstown": EC, "summerstrand": EC, "vincentparkshoppingmall": EC,
+  "vincentpark": EC, "vincent": EC, "walmerpark": EC, "walmer": EC,
+  "merinomall": EC,
+
+  // Mpumalanga
+  "benfleurrwitbank": MP, "benfleurwitbank": MP, "benfleur": MP,
+  "bethal": MP, "emalahleni": MP, "ermelo": MP,
+  "highveldmallwitbank": MP, "ilanga": MP, "ilangamall": MP,
+  "mbombela": MP, "middelburgmall": MP, "middelburg": MP,
+  "nelspruit": MP, "nelspruitcrossing": MP, "riverside": MP,
+  "riversidepark": MP, "riversidemall": MP, "secundamall": MP,
+  "secunda": MP, "standertonmall": MP, "standerton": MP,
+  "whiteriver": MP, "whiterivercrossing": MP, "witbank": MP,
+
+  // Limpopo
+  "burgersfort": LP, "bushbuckridge": LP, "ellisras": LP,
+  "lephalale": LP, "louistichardt": LP, "makhado": LP,
+  "mallofthenorth": LP, "mokopane": LP, "musina": LP, "phalaborwa": LP,
+  "polokwane": LP, "polokwanecbd": LP, "savannah": LP,
+  "savannahmall": LP, "thavhani": LP, "thavhanimall": LP,
+  "thohoyandou": LP, "tzaneencorp": LP, "tzaneen": LP,
+  "tzaneenmall": LP,
+
+  // Free State
+  "bethlehem": FS, "bloemfontein": FS, "bloemfonteinplaza": FS,
+  "bloemgate": FS, "goldfieldswelkom": FS, "goldfields": FS,
+  "kroonstad": FS, "kroonstadmall": FS, "mangaung": FS,
+  "middestad": FS, "middestadbloemfontein": FS, "mimosa": FS,
+  "mimosamall": FS, "phuthaditjhaba": FS, "prellersquare": FS,
+  "preller": FS, "sasolburg": FS, "sasolburgplaza": FS,
+  "virginia": FS, "virginiamall": FS, "welkom": FS, "welkomcbd": FS,
+
+  // North West
+  "brits": NW, "britsmall": NW, "hartebeespoort": NW,
+  "hartbeespoort": NW, "klerksdorp": NW, "klerksdorpcentre": NW,
+  "lichtenburg": NW, "mafikeng": NW, "mahikeng": NW, "matlosana": NW,
+  "mmabatho": NW, "mooiriverpotch": NW, "mooinooi": NW,
+  "potchefstroom": NW, "potchefstroomcbd": NW, "rustenburg": NW,
+  "rustenburgmall": NW, "sunvalley": NW, "wilkoppies": NW,
+  "wilkoppiesmall": NW,
+
+  // Northern Cape
+  "diamondpavillion": NC, "diamondmall": NC, "kathu": NC,
+  "kimberley": NC, "kimberleycbd": NC, "northcapekimberley": NC,
+  "northcape": NC, "springbok": NC, "upington": NC, "upingtonmall": NC,
+
+  // Online/ecom
+  "woolworthsonline": GP, "woolworthsfoodstudio": GP, "wfoodstudio": GP,
+  "online": GP, "ecom": GP, "ecommerce": GP,
+};
+
+/* ------------------------------------------------------------------ */
+/*  Keyword → Province fallback (longest-first)                        */
+/* ------------------------------------------------------------------ */
+
+const KEYWORD_PROVINCE: [string, string][] = [
+  // Gauteng
+  ["vanderbijlpark", GP], ["johannesburg", GP], ["bedfordview", GP],
+  ["kemptonpark", GP], ["roodepoort", GP], ["sandton", GP],
+  ["pretoria", GP], ["centurion", GP], ["midrand", GP], ["fourways", GP],
+  ["bryanston", GP], ["randburg", GP], ["boksburg", GP], ["benoni", GP],
+  ["germiston", GP], ["alberton", GP], ["edenvale", GP], ["kempton", GP],
+  ["soweto", GP], ["vereeniging", GP], ["springs", GP], ["krugersdorp", GP],
+  ["tembisa", GP], ["soshanguve", GP], ["mamelodi", GP],
+  ["atteridgeville", GP], ["silverton", GP], ["garsfontein", GP],
+  ["faerie", GP], ["irene", GP], ["kyalami", GP], ["sunninghill", GP],
+  ["rivonia", GP], ["lonehill", GP], ["olivedale", GP],
+  ["northcliff", GP], ["melville", GP], ["parktown", GP], ["norwood", GP],
+  ["houghton", GP], ["emmarentia", GP], ["greenside", GP], ["hyde", GP],
+  ["rosebank", GP], ["illovo", GP], ["morningside", GP],
+  // Western Cape
+  ["somersetwest", WC], ["capetown", WC], ["stellenbosch", WC],
+  ["paarl", WC], ["somerset", WC], ["bellville", WC],
+  ["kuilsriver", WC], ["tableview", WC], ["worcester", WC],
+  ["george", WC], ["knysna", WC], ["plettenberg", WC], ["mossel", WC],
+  ["hermanus", WC], ["franschhoek", WC], ["gordons", WC],
+  ["milnerton", WC], ["durbanville", WC], ["kenilworth", WC],
+  ["claremont", WC], ["constantia", WC], ["tokai", WC],
+  ["muizenberg", WC], ["wynberg", WC], ["strand", WC],
+  ["brackenfell", WC], ["goodwood", WC], ["athlone", WC],
+  ["mitchells", WC], ["malmesbury", WC], ["saldanha", WC],
+  ["langebaan", WC], ["swellendam", WC], ["oudtshoorn", WC],
+  ["beaufort", WC],
+  // KwaZulu-Natal
+  ["pietermaritzburg", KZN], ["richardsbay", KZN], ["durban", KZN],
+  ["umhlanga", KZN], ["ballito", KZN], ["newcastle", KZN],
+  ["ladysmith", KZN], ["amajuba", KZN], ["hillcrest", KZN],
+  ["westville", KZN], ["pinetown", KZN], ["empangeni", KZN],
+  ["stanger", KZN], ["scottburgh", KZN], ["amanzimtoti", KZN],
+  ["chatsworth", KZN], ["kloof", KZN], ["howick", KZN], ["hilton", KZN],
+  ["springfield", KZN],
+  // Eastern Cape
+  ["portelizabeth", EC], ["gqeberha", EC], ["eastlondon", EC],
+  ["jeffreys", EC], ["grahamstown", EC], ["makhanda", EC],
+  ["mthatha", EC], ["queenstown", EC], ["kingwilliamstown", EC],
+  ["walmer", EC], ["summerstrand", EC],
+  // Mpumalanga
+  ["nelspruit", MP], ["mbombela", MP], ["witbank", MP],
+  ["emalahleni", MP], ["secunda", MP], ["middelburg", MP],
+  ["whiteriver", MP], ["ermelo", MP], ["standerton", MP],
+  ["bethal", MP], ["phalaborwa", MP],
+  // Limpopo
+  ["polokwane", LP], ["tzaneen", LP], ["mokopane", LP],
+  ["lephalale", LP], ["thohoyandou", LP], ["musina", LP],
+  ["makhado", LP], ["burgersfort", LP], ["louistichardt", LP],
+  // Free State
+  ["bloemfontein", FS], ["welkom", FS], ["mangaung", FS],
+  ["kroonstad", FS], ["bethlehem", FS], ["sasolburg", FS],
+  ["virginia", FS], ["phuthaditjhaba", FS],
+  // North West
+  ["potchefstroom", NW], ["rustenburg", NW], ["klerksdorp", NW],
+  ["mafikeng", NW], ["mahikeng", NW], ["hartbeespoort", NW],
+  ["brits", NW], ["lichtenburg", NW], ["mooinooi", NW],
+  // Northern Cape
+  ["kimberley", NC], ["upington", NC], ["springbok", NC], ["kathu", NC],
+];
+
+/* ------------------------------------------------------------------ */
+/*  Public API                                                         */
+/* ------------------------------------------------------------------ */
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function canonicalProvince(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const n = norm(value);
+  if (!n) return null;
+  return PROVINCE_ALIASES[n] ?? null;
+}
+
+function extractProvinceAlias(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  const matches = upper.match(/\b(?:GP|WC|KZN|EC|FS|LP|MP|NW|NC)\b/g);
+  if (!matches) return null;
+  return canonicalProvince(matches[0]);
+}
+
+function inferProvinceFromSegments(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const segments = value
+    .split(/[^a-z0-9]+/i)
+    .map((seg) => seg.trim())
+    .filter((seg) => seg.length >= 3);
+  for (const segment of segments) {
+    const province = inferProvince(segment);
+    if (province && VALID_PROVINCE_SET.has(province)) return province;
+  }
+  return null;
+}
+
+/**
+ * Infer SA province from a store/shopping centre name.
+ * Returns province string (e.g. "Gauteng") or null if no confident match.
+ */
+export function inferProvince(storeLocation: string): string | null {
+  if (!storeLocation) return null;
+  const n = norm(storeLocation);
+  if (!n) return null;
+
+  // 1. Exact lookup
+  const exact = STORE_PROVINCE_MAP[n];
+  if (exact) return exact;
+
+  // 2. Keyword/substring fallback
+  for (const [keyword, province] of KEYWORD_PROVINCE) {
+    if (n.includes(keyword)) return province;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the province from region and/or store location fields.
+ * Tries multiple strategies: canonical province name, abbreviation,
+ * store lookup, and keyword matching.
+ */
+export function resolveProvince(input: {
+  region?: string | null;
+  storeLocation?: string | null;
+}): string | null {
+  const { region, storeLocation } = input;
+
+  // 1. Explicit canonical province name
+  const explicitProvince = canonicalProvince(region);
+  if (explicitProvince) return explicitProvince;
+
+  // 2. Province abbreviation in region field
+  const regionAlias = extractProvinceAlias(region);
+  if (regionAlias) return regionAlias;
+
+  // 3. Infer from region as store/location name
+  if (region) {
+    const fromRegion = inferProvince(region);
+    if (fromRegion && VALID_PROVINCE_SET.has(fromRegion)) return fromRegion;
+  }
+
+  // 4. Province abbreviation in store location
+  const storeAlias = extractProvinceAlias(storeLocation);
+  if (storeAlias) return storeAlias;
+
+  // 5. Infer from store location name
+  if (storeLocation) {
+    const fromStore = inferProvince(storeLocation);
+    if (fromStore && VALID_PROVINCE_SET.has(fromStore)) return fromStore;
+  }
+
+  // 6. Segmented matching (split on delimiters)
+  const segmentedRegion = inferProvinceFromSegments(region);
+  if (segmentedRegion) return segmentedRegion;
+
+  const segmentedStore = inferProvinceFromSegments(storeLocation);
+  if (segmentedStore) return segmentedStore;
+
+  return null;
+}
