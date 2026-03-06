@@ -677,6 +677,141 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_sell_out_kpis: {
+        Args: {
+          p_project_id: string
+          p_brand?: string | null
+          p_retailer?: string | null
+          p_province?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+        }
+        Returns: {
+          total_revenue: number
+          total_units: number
+          total_cost: number
+          row_count: number
+          distinct_products: number
+          distinct_retailers: number
+        }[]
+      }
+      get_campaign_kpis: {
+        Args: {
+          p_project_id: string
+          p_platform?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+        }
+        Returns: {
+          total_spend: number
+          total_impressions: number
+          total_clicks: number
+          total_conversions: number
+          total_revenue: number
+          campaign_count: number
+        }[]
+      }
+      get_sell_out_aggregation: {
+        Args: {
+          p_project_id: string
+          p_group_by: string
+          p_brand?: string | null
+          p_retailer?: string | null
+          p_province?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+          p_limit?: number
+        }
+        Returns: {
+          group_key: string
+          total_revenue: number
+          total_units: number
+          total_cost: number
+          row_count: number
+        }[]
+      }
+      get_campaign_aggregation: {
+        Args: {
+          p_project_id: string
+          p_group_by: string
+          p_platform?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+          p_limit?: number
+        }
+        Returns: {
+          group_key: string
+          total_spend: number
+          total_impressions: number
+          total_clicks: number
+          total_conversions: number
+          total_revenue: number
+          row_count: number
+        }[]
+      }
+      get_top_products: {
+        Args: {
+          p_project_id: string
+          p_brand?: string | null
+          p_retailer?: string | null
+          p_province?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+          p_limit?: number
+        }
+        Returns: {
+          product_name: string
+          total_revenue: number
+          total_units: number
+          avg_price: number
+          market_share: number
+        }[]
+      }
+      get_campaign_flights: {
+        Args: {
+          p_project_id: string
+          p_platform?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+          p_limit?: number
+        }
+        Returns: {
+          campaign_name: string
+          platform: string
+          flight_start: string
+          flight_end: string
+          total_spend: number
+        }[]
+      }
+      get_filter_options: {
+        Args: {
+          p_project_id: string
+        }
+        Returns: {
+          brands: string[]
+          retailers: string[]
+          provinces: string[]
+          categories: string[]
+          platforms: string[]
+          date_min: string
+          date_max: string
+        }[]
+      }
+      get_daily_revenue: {
+        Args: {
+          p_project_id: string
+          p_brand?: string | null
+          p_retailer?: string | null
+          p_province?: string | null
+          p_date_from?: string | null
+          p_date_to?: string | null
+        }
+        Returns: {
+          day: string
+          total_revenue: number
+          total_units: number
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "analyst" | "viewer"
