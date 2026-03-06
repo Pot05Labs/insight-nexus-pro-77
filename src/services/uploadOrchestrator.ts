@@ -6,7 +6,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { parseFile, type ParseResult, type ParsedFile, type ParsedPPTX } from "./fileParser";
+import { parseFile, type ParseResult, type ParsedPPTX } from "./fileParser";
 import { mapColumns, type ColumnMapping, type DataType } from "./columnMapper";
 import { toSellOutRecord, toCampaignRecord } from "./valueTransformer";
 import { audit } from "@/lib/audit-client";
@@ -35,6 +35,30 @@ export interface UploadResult {
 }
 
 export type ProgressCallback = (p: { percent: number; stage: string }) => void;
+
+/* ------------------------------------------------------------------ */
+/*  Resolve project ID — call once before concurrent uploads           */
+/* ------------------------------------------------------------------ */
+
+export async function resolveProjectId(userId: string): Promise<string | null> {
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (projects?.[0]?.id) return projects[0].id;
+
+  // No project exists — create one
+  const { data: newProj } = await supabase
+    .from("projects")
+    .insert({ user_id: userId, name: "Default Project" })
+    .select("id")
+    .single();
+
+  return newProj?.id ?? null;
+}
 
 /* ------------------------------------------------------------------ */
 /*  PPTX → Campaign extraction via LLM                                 */
@@ -116,6 +140,8 @@ export async function orchestrateUpload(
   userId: string,
   sourceName: string | null,
   onProgress: ProgressCallback,
+  /** Pre-resolved project ID — avoids race conditions in concurrent uploads */
+  preResolvedProjectId?: string,
 ): Promise<UploadResult> {
 
   const auditData: UploadAudit = {
@@ -225,21 +251,26 @@ export async function orchestrateUpload(
 
   // ══════════════════════════════════════════════════
   //  STEP 3: GET PROJECT
+  //  Use pre-resolved ID to prevent race conditions
+  //  when multiple files upload concurrently.
   // ══════════════════════════════════════════════════
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  let projectId = projects?.[0]?.id;
+  let projectId = preResolvedProjectId;
   if (!projectId) {
-    const { data: newProj } = await supabase
+    const { data: projects } = await supabase
       .from("projects")
-      .insert({ user_id: userId, name: "Default Project" })
       .select("id")
-      .single();
-    projectId = newProj?.id;
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    projectId = projects?.[0]?.id;
+    if (!projectId) {
+      const { data: newProj } = await supabase
+        .from("projects")
+        .insert({ user_id: userId, name: "Default Project" })
+        .select("id")
+        .single();
+      projectId = newProj?.id;
+    }
   }
   if (!projectId) {
     return { success: false, dataType: mapping.dataType, audit: auditData, mapping, error: "No project found." };

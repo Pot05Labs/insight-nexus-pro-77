@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { generatePreview, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
-import { orchestrateUpload, type UploadResult } from "@/services/uploadOrchestrator";
+import { orchestrateUpload, resolveProjectId, type UploadResult } from "@/services/uploadOrchestrator";
 import { runLearningPipeline } from "@/services/learningPipeline";
 import type { SchemaReport } from "@/lib/canonical-schemas";
 
@@ -264,7 +264,7 @@ const UploadPage = () => {
     }
   };
 
-  const runProcessing = async (fileId: string, uploadId: string, file: File, sourceName: string | null, userId: string) => {
+  const runProcessing = async (fileId: string, uploadId: string, file: File, sourceName: string | null, userId: string, projectId?: string) => {
     updateFile(fileId, { status: "processing", progress: 5, processingMessage: "Starting..." });
 
     try {
@@ -293,6 +293,7 @@ const UploadPage = () => {
             };
           }));
         },
+        projectId,
       );
 
       // Mark all agents as done
@@ -344,7 +345,7 @@ const UploadPage = () => {
     fetchUploads();
   };
 
-  const uploadFile = async (uf: UploadFile) => {
+  const uploadFile = async (uf: UploadFile, projectId?: string) => {
     updateFile(uf.id, { status: "uploading", progress: 10 });
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -401,11 +402,12 @@ const UploadPage = () => {
       column_names: uf.columns ?? null,
       row_count: null,
       status: "processing",
+      project_id: projectId ?? null,
     }).select("id").single();
     if (dbError || !dbData) { updateFile(uf.id, { status: "error", error: dbError?.message ?? "Insert failed" }); return; }
 
     updateFile(uf.id, { status: "processing" });
-    await runProcessing(uf.id, dbData.id, uf.file, uf.sourceName || null, session.user.id);
+    await runProcessing(uf.id, dbData.id, uf.file, uf.sourceName || null, session.user.id, projectId);
     fetchUploads();
   };
 
@@ -413,13 +415,26 @@ const UploadPage = () => {
     const pending = files.filter((f) => f.status === "pending");
     let failCount = 0;
 
+    // Resolve project ID ONCE before concurrent uploads to prevent
+    // race conditions where parallel orchestrators each create a new project.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast({ title: "Not logged in", description: "Please log in to upload files.", variant: "destructive" });
+      return;
+    }
+    const projectId = await resolveProjectId(session.user.id);
+    if (!projectId) {
+      toast({ title: "Project error", description: "Could not create or find a project.", variant: "destructive" });
+      return;
+    }
+
     // Process files in concurrent waves of 3 for enterprise-speed uploads
     const UPLOAD_CONCURRENCY = 3;
     for (let w = 0; w < pending.length; w += UPLOAD_CONCURRENCY) {
       const wave = pending.slice(w, w + UPLOAD_CONCURRENCY);
       const results = await Promise.allSettled(wave.map(async (f) => {
         try {
-          await uploadFile(f);
+          await uploadFile(f, projectId);
         } catch (err) {
           console.error(`[uploadAll] Failed to upload ${f.file.name}:`, err);
           updateFile(f.id, { status: "error", error: String(err) });
@@ -431,15 +446,7 @@ const UploadPage = () => {
 
     // Run learning pipeline ONCE after all files are done (not per-file)
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const { data: projects } = await supabase
-          .from("projects").select("id")
-          .eq("user_id", session.user.id)
-          .order("created_at", { ascending: false }).limit(1);
-        const pId = projects?.[0]?.id;
-        if (pId) await runLearningPipeline(pId, session.user.id);
-      }
+      await runLearningPipeline(projectId, session.user.id);
     } catch (err) {
       console.warn("[uploadAll] Learning pipeline failed:", err);
     }

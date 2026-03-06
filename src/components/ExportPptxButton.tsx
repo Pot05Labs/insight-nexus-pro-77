@@ -187,13 +187,25 @@ type InsightItem = { title: string; insight: string; data_point: string; implica
 type RecItem = { title: string; description: string };
 
 /* ------------------------------------------------------------------ */
+/*  Layout constants — 16:9 LAYOUT_WIDE = 13.33" × 7.5"              */
+/* ------------------------------------------------------------------ */
+
+const SLIDE_W = 13.33;
+const SLIDE_H = 7.5;
+const FOOTER_DIVIDER_Y = 6.9;
+const FOOTER_BADGE_Y = 6.98;
+const FOOTER_URL_Y = 7.0;
+const BOTTOM_BAR_Y = 7.35;
+const CONTENT_MAX_Y = 6.7; // Content should stop here to leave room for footer
+
+/* ------------------------------------------------------------------ */
 /*  Shared layout helpers                                              */
 /* ------------------------------------------------------------------ */
 
 /** Thin accent bar at the top of a slide */
 function addTopAccent(slide: Slide, brand: ReportBrandConfig) {
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 0, y: 0, w: "100%", h: 0.05,
+    x: 0, y: 0, w: "100%", h: 0.06,
     fill: { color: brand.primaryColor },
   });
 }
@@ -206,21 +218,21 @@ function addBrandedFooter(
 ) {
   // Thin divider line
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 0.5, y: 5.0, w: 12, h: 0.008,
+    x: 0.5, y: FOOTER_DIVIDER_Y, w: SLIDE_W - 1, h: 0.008,
     fill: { color: "E5E7EB" },
   });
 
   // "Powered by SignalStack" badge (left)
   slide.addImage({
     data: badgePng,
-    x: 0.5, y: 5.08,
+    x: 0.5, y: FOOTER_BADGE_Y,
     w: 1.8, h: 0.3,
   });
 
   // Org URL (right)
   if (brand.url) {
     slide.addText(brand.url, {
-      x: 8, y: 5.1, w: 4.5, h: 0.25,
+      x: 8, y: FOOTER_URL_Y, w: 4.5, h: 0.25,
       fontSize: 8,
       fontFace: "Arial",
       color: brand.grayColor,
@@ -270,13 +282,13 @@ function buildCoverSlide(
   if (logoPng) {
     slide.addImage({
       data: logoPng,
-      x: 0.8, y: 0.5,
+      x: 0.8, y: 0.6,
       w: brand.logoWidth, h: brand.logoHeight,
     });
   } else {
     // Text-based logo fallback
     slide.addText(brand.orgName.toUpperCase(), {
-      x: 0.8, y: 0.5, w: 6, h: 0.5,
+      x: 0.8, y: 0.6, w: 6, h: 0.5,
       fontSize: 20,
       fontFace: "Arial",
       color: brand.darkColor,
@@ -288,7 +300,7 @@ function buildCoverSlide(
   // Confidential badge
   if (brand.confidential) {
     slide.addText("CONFIDENTIAL", {
-      x: 9, y: 0.55, w: 3.5, h: 0.35,
+      x: 9, y: 0.65, w: 3.5, h: 0.35,
       fontSize: 9,
       fontFace: "Arial",
       color: brand.primaryColor,
@@ -300,20 +312,20 @@ function buildCoverSlide(
 
   // Horizontal rule
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 0.8, y: 1.55, w: 11, h: 0.01,
+    x: 0.8, y: 1.75, w: 11, h: 0.01,
     fill: { color: "E5E7EB" },
   });
 
   // Report title
   slide.addText("AI Strategic Insights", {
-    x: 0.8, y: 1.9, w: 10, h: 0.75,
-    fontSize: 34,
+    x: 0.8, y: 2.2, w: 10, h: 0.85,
+    fontSize: 36,
     fontFace: "Arial",
     color: brand.darkColor,
     bold: true,
   });
 
-  // Subtitle — executive summary preview (first 120 chars)
+  // Subtitle — executive summary preview (first 140 chars)
   const previewText = report.executive_summary
     ? report.executive_summary.length > 140
       ? report.executive_summary.slice(0, 137) + "..."
@@ -321,11 +333,11 @@ function buildCoverSlide(
     : "Commerce intelligence report generated from live analytics data.";
 
   slide.addText(previewText, {
-    x: 0.8, y: 2.75, w: 10, h: 0.7,
-    fontSize: 13,
+    x: 0.8, y: 3.2, w: 10, h: 0.9,
+    fontSize: 14,
     fontFace: "Arial",
     color: brand.grayColor,
-    lineSpacingMultiple: 1.4,
+    lineSpacingMultiple: 1.5,
   });
 
   // Date + org tagline
@@ -336,16 +348,16 @@ function buildCoverSlide(
   });
 
   slide.addText(`Generated: ${today}`, {
-    x: 0.8, y: 3.7, w: 5, h: 0.3,
-    fontSize: 10,
+    x: 0.8, y: 4.5, w: 5, h: 0.3,
+    fontSize: 11,
     fontFace: "Arial",
     color: brand.grayColor,
   });
 
   if (brand.tagline) {
     slide.addText(brand.tagline, {
-      x: 0.8, y: 4.05, w: 8, h: 0.3,
-      fontSize: 10,
+      x: 0.8, y: 4.9, w: 8, h: 0.3,
+      fontSize: 11,
       fontFace: "Arial",
       color: brand.grayColor,
       italic: true,
@@ -355,12 +367,12 @@ function buildCoverSlide(
   // "Powered by SignalStack" badge (bottom-right)
   slide.addImage({
     data: badgePng,
-    x: 9.5, y: 4.7, w: 2.2, h: 0.38,
+    x: 9.5, y: 6.3, w: 2.2, h: 0.38,
   });
 
   // Bottom accent bar
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 0, y: 5.4, w: "100%", h: 0.1,
+    x: 0, y: BOTTOM_BAR_Y, w: "100%", h: 0.1,
     fill: { color: brand.primaryColor },
   });
 }
@@ -379,22 +391,24 @@ function buildSummarySlide(
   addTopAccent(slide, brand);
   addSectionHeader(slide, brand, "Executive Summary");
 
+  const contentH = CONTENT_MAX_Y - 1.15; // Full height between header and footer
+
   // Quote-style accent bar on the left
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 0.6, y: 1.15, w: 0.05, h: 2.5,
+    x: 0.6, y: 1.15, w: 0.05, h: contentH,
     fill: { color: brand.primaryColor },
     rectRadius: 0.025,
   });
 
   // Summary text
   slide.addText(summary, {
-    x: 0.85, y: 1.15, w: 11.2, h: 2.5,
+    x: 0.85, y: 1.15, w: 11.5, h: contentH,
     fontSize: 15,
     fontFace: "Arial",
     color: brand.darkColor,
-    lineSpacingMultiple: 1.6,
+    lineSpacingMultiple: 1.7,
     valign: "top",
-    paraSpaceAfter: 12,
+    paraSpaceAfter: 14,
   });
 
   addBrandedFooter(slide, brand, badgePng);
@@ -426,10 +440,10 @@ function buildInsightSlides(
       : "Key Insights";
     addSectionHeader(slide, brand, pageLabel);
 
-    const cardW = 5.6;
-    const cardH = 3.2;
+    const cardW = 5.8;
+    const cardH = 5.2; // Taller cards for 7.5" slide height
     const gapX = 0.5;
-    const startX = 0.6;
+    const startX = 0.55;
     const startY = 1.15;
 
     pageInsights.forEach((insight, i) => {
@@ -452,13 +466,13 @@ function buildInsightSlides(
 
       // Insight number badge
       slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-        x: x + 0.22, y: y + 0.2, w: 0.32, h: 0.32,
+        x: x + 0.25, y: y + 0.25, w: 0.36, h: 0.36,
         fill: { color: brand.primaryColor },
         rectRadius: 0.04,
       });
       slide.addText(String(pageIdx * perSlide + i + 1), {
-        x: x + 0.22, y: y + 0.2, w: 0.32, h: 0.32,
-        fontSize: 13,
+        x: x + 0.25, y: y + 0.25, w: 0.36, h: 0.36,
+        fontSize: 14,
         fontFace: "Arial",
         color: "FFFFFF",
         bold: true,
@@ -468,8 +482,8 @@ function buildInsightSlides(
 
       // Title
       slide.addText(insight.title, {
-        x: x + 0.65, y: y + 0.18, w: cardW - 0.9, h: 0.38,
-        fontSize: 13,
+        x: x + 0.75, y: y + 0.22, w: cardW - 1.0, h: 0.42,
+        fontSize: 14,
         fontFace: "Arial",
         color: brand.darkColor,
         bold: true,
@@ -478,23 +492,23 @@ function buildInsightSlides(
 
       // What — insight text
       slide.addText(insight.insight, {
-        x: x + 0.22, y: y + 0.65, w: cardW - 0.44, h: 0.85,
-        fontSize: 10.5,
+        x: x + 0.25, y: y + 0.8, w: cardW - 0.5, h: 1.4,
+        fontSize: 11,
         fontFace: "Arial",
         color: brand.darkColor,
-        lineSpacingMultiple: 1.4,
+        lineSpacingMultiple: 1.5,
         valign: "top",
       });
 
       // Data point badge
       slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-        x: x + 0.22, y: y + 1.55, w: cardW - 0.44, h: 0.4,
+        x: x + 0.25, y: y + 2.35, w: cardW - 0.5, h: 0.5,
         fill: { color: brand.primaryColor + "18" },
         rectRadius: 0.05,
       });
       slide.addText(insight.data_point, {
-        x: x + 0.35, y: y + 1.55, w: cardW - 0.7, h: 0.4,
-        fontSize: 12,
+        x: x + 0.38, y: y + 2.35, w: cardW - 0.76, h: 0.5,
+        fontSize: 13,
         fontFace: "Arial",
         color: brand.primaryColor,
         bold: true,
@@ -503,19 +517,19 @@ function buildInsightSlides(
 
       // Implication — So What / Now What
       slide.addText("IMPLICATION", {
-        x: x + 0.22, y: y + 2.08, w: cardW - 0.44, h: 0.2,
-        fontSize: 7,
+        x: x + 0.25, y: y + 3.05, w: cardW - 0.5, h: 0.22,
+        fontSize: 8,
         fontFace: "Arial",
         color: brand.grayColor,
         bold: true,
         letterSpacing: 2,
       });
       slide.addText(insight.implication, {
-        x: x + 0.22, y: y + 2.28, w: cardW - 0.44, h: 0.82,
-        fontSize: 9.5,
+        x: x + 0.25, y: y + 3.3, w: cardW - 0.5, h: 1.7,
+        fontSize: 10.5,
         fontFace: "Arial",
         color: brand.grayColor,
-        lineSpacingMultiple: 1.35,
+        lineSpacingMultiple: 1.45,
         valign: "top",
       });
     });
@@ -539,21 +553,22 @@ function buildRecommendationsSlide(
   addSectionHeader(slide, brand, "Strategic Recommendations");
 
   const startY = 1.15;
-  const itemH = 1.1;
-  const maxItems = Math.min(recommendations.length, 4);
+  const availableH = CONTENT_MAX_Y - startY;
+  const maxItems = Math.min(recommendations.length, 5);
+  const itemH = Math.min(availableH / maxItems, 1.35);
 
   recommendations.slice(0, maxItems).forEach((rec, i) => {
     const y = startY + i * itemH;
 
     // Number circle
     slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-      x: 0.6, y: y + 0.05, w: 0.38, h: 0.38,
+      x: 0.6, y: y + 0.08, w: 0.42, h: 0.42,
       fill: { color: brand.primaryColor },
-      rectRadius: 0.19,
+      rectRadius: 0.21,
     });
     slide.addText(String(i + 1), {
-      x: 0.6, y: y + 0.05, w: 0.38, h: 0.38,
-      fontSize: 14,
+      x: 0.6, y: y + 0.08, w: 0.42, h: 0.42,
+      fontSize: 15,
       fontFace: "Arial",
       color: "FFFFFF",
       bold: true,
@@ -563,7 +578,7 @@ function buildRecommendationsSlide(
 
     // Title
     slide.addText(rec.title, {
-      x: 1.15, y, w: 10.5, h: 0.35,
+      x: 1.2, y, w: 11, h: 0.4,
       fontSize: 14,
       fontFace: "Arial",
       color: brand.darkColor,
@@ -572,11 +587,11 @@ function buildRecommendationsSlide(
 
     // Description
     slide.addText(rec.description, {
-      x: 1.15, y: y + 0.38, w: 10.5, h: 0.6,
+      x: 1.2, y: y + 0.42, w: 11, h: itemH - 0.5,
       fontSize: 11,
       fontFace: "Arial",
       color: brand.grayColor,
-      lineSpacingMultiple: 1.35,
+      lineSpacingMultiple: 1.4,
       valign: "top",
     });
   });
@@ -616,12 +631,12 @@ function buildCampaignSlide(
   });
 
   slide.addTable([headerRow, ...dataRows], {
-    x: 0.6, y: 1.15, w: 11.5,
-    colW: [5.5, 2, 2, 2],
+    x: 0.6, y: 1.15, w: 12,
+    colW: [5.5, 2.2, 2.2, 2.1],
     fontSize: 11,
     fontFace: "Arial",
     border: { type: "solid", pt: 0.5, color: "E5E7EB" },
-    rowH: 0.4,
+    rowH: 0.45,
   });
 
   addBrandedFooter(slide, brand, badgePng);
@@ -642,18 +657,21 @@ function buildClosingSlide(
   // Top accent bar
   addTopAccent(slide, brand);
 
+  // Vertically center content in the 7.5" slide
+  const centerY = SLIDE_H / 2; // 3.75"
+
   // Organisation logo (centered) or text
   if (logoPng) {
-    const logoX = (13.33 - brand.logoWidth) / 2;
+    const logoX = (SLIDE_W - brand.logoWidth) / 2;
     slide.addImage({
       data: logoPng,
-      x: logoX, y: 1.4,
+      x: logoX, y: centerY - 1.8,
       w: brand.logoWidth, h: brand.logoHeight,
     });
   } else {
     slide.addText(brand.orgName.toUpperCase(), {
-      x: 0, y: 1.4, w: "100%", h: 0.6,
-      fontSize: 26,
+      x: 0, y: centerY - 1.8, w: "100%", h: 0.6,
+      fontSize: 28,
       fontFace: "Arial",
       color: brand.darkColor,
       bold: true,
@@ -664,21 +682,21 @@ function buildClosingSlide(
 
   // Divider
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 5.5, y: 2.5, w: 2.3, h: 0.03,
+    x: (SLIDE_W - 2.5) / 2, y: centerY - 0.7, w: 2.5, h: 0.03,
     fill: { color: brand.primaryColor },
   });
 
   // "Powered by SignalStack" badge (centered)
   slide.addImage({
     data: badgePng,
-    x: 5.55, y: 2.75,
+    x: (SLIDE_W - 2.2) / 2, y: centerY - 0.35,
     w: 2.2, h: 0.38,
   });
 
   // Tagline
   slide.addText("Commerce Intelligence Harmoniser", {
-    x: 0, y: 3.3, w: "100%", h: 0.35,
-    fontSize: 12,
+    x: 0, y: centerY + 0.2, w: "100%", h: 0.35,
+    fontSize: 13,
     fontFace: "Arial",
     color: brand.grayColor,
     align: "center",
@@ -686,8 +704,8 @@ function buildClosingSlide(
 
   // URL
   slide.addText(brand.url ?? "signalstack.africa", {
-    x: 0, y: 3.75, w: "100%", h: 0.3,
-    fontSize: 11,
+    x: 0, y: centerY + 0.7, w: "100%", h: 0.3,
+    fontSize: 12,
     fontFace: "Arial",
     color: brand.primaryColor,
     align: "center",
@@ -701,7 +719,7 @@ function buildClosingSlide(
     year: "numeric",
   });
   slide.addText(`Generated by SignalStack on ${today}`, {
-    x: 0, y: 4.4, w: "100%", h: 0.25,
+    x: 0, y: centerY + 1.4, w: "100%", h: 0.25,
     fontSize: 9,
     fontFace: "Arial",
     color: brand.grayColor,
@@ -710,7 +728,7 @@ function buildClosingSlide(
 
   // Bottom accent bar
   slide.addShape("rect" as Parameters<typeof slide.addShape>[0], {
-    x: 0, y: 5.4, w: "100%", h: 0.1,
+    x: 0, y: BOTTOM_BAR_Y, w: "100%", h: 0.1,
     fill: { color: brand.primaryColor },
   });
 }
