@@ -1,25 +1,34 @@
 project_id = "ftikhauhpwphyceoisme"
 
+# Default: all functions require JWT authentication
+# Only stripe-webhook is exempt (Stripe sends unsigned callbacks)
+
 [functions.chat]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-checkout]
-verify_jwt = false
+verify_jwt = true
 
 [functions.check-subscription]
-verify_jwt = false
+verify_jwt = true
 
 [functions.customer-portal]
-verify_jwt = false
+verify_jwt = true
 
 [functions.process-upload]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ai-chat]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-checkout-session]
-verify_jwt = false
+verify_jwt = true
 
 [functions.stripe-webhook]
 verify_jwt = false
+
+[functions.ai-extract-campaign]
+verify_jwt = true
+
+[functions.ai-schema-detect]
+verify_jwt = true

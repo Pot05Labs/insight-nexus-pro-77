@@ -2,18 +2,12 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
-
-const DEFAULT_APP_URL = Deno.env.get("SITE_URL") ?? Deno.env.get("APP_URL") ?? "https://signalstack.africa";
 const ALLOWED_ORIGINS = [
   "https://signalstack.africa",
   "https://www.signalstack.africa",
 ];
 
-function resolveAppUrl(req: Request): string {
+function getAllowedOrigin(req: Request): string {
   const origin = req.headers.get("origin") ?? "";
   if (
     ALLOWED_ORIGINS.includes(origin) ||
@@ -23,12 +17,26 @@ function resolveAppUrl(req: Request): string {
   ) {
     return origin;
   }
-  return DEFAULT_APP_URL;
+  return ALLOWED_ORIGINS[0];
+}
+
+function corsHeaders(req: Request) {
+  return {
+    "Access-Control-Allow-Origin": getAllowedOrigin(req),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
+
+const DEFAULT_APP_URL = Deno.env.get("SITE_URL") ?? Deno.env.get("APP_URL") ?? "https://signalstack.africa";
+
+function resolveAppUrl(req: Request): string {
+  return getAllowedOrigin(req) || DEFAULT_APP_URL;
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders(req) });
   }
 
   try {
@@ -61,12 +69,12 @@ serve(async (req) => {
     });
 
     return new Response(JSON.stringify({ url: portalSession.url }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       status: 200,
     });
   } catch (error: unknown) {
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       status: 500,
     });
   }

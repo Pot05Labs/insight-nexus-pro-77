@@ -2,7 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type Msg = { role: "user" | "assistant"; content: string };
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "https://ftikhauhpwphyceoisme.supabase.co";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const CHAT_URL = `${SUPABASE_URL}/functions/v1/ai-chat`;
 
 export async function streamAiChat({

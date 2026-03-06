@@ -189,14 +189,14 @@ const QueryPage = () => {
       }
 
       // Try to parse query spec from AI response
-      let querySpec = null;
+      let querySpec: { table?: string; select?: string; explanation?: string; [k: string]: unknown } | null = null;
       try {
         const jsonMatch = fullText.match(/\{[\s\S]*\}/);
         if (jsonMatch) querySpec = JSON.parse(jsonMatch[0]);
       } catch { /* not valid JSON */ }
 
       if (querySpec?.table && querySpec?.select) {
-        const result = await executeQuery(querySpec);
+        const result = await executeQuery(querySpec as Parameters<typeof executeQuery>[0]);
         const explanation = querySpec.explanation || "Query executed successfully.";
 
         if (result && result.rows.length > 0) {

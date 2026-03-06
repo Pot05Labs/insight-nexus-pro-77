@@ -1,11 +1,31 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+const ALLOWED_ORIGINS = [
+  "https://signalstack.africa",
+  "https://www.signalstack.africa",
+];
+
+function getAllowedOrigin(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  if (
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.includes(".lovable.app") ||
+    origin.includes(".lovableproject.com") ||
+    origin.startsWith("http://localhost")
+  ) {
+    return origin;
+  }
+  return ALLOWED_ORIGINS[0];
+}
+
+function corsHeaders(req: Request) {
+  return {
+    "Access-Control-Allow-Origin": getAllowedOrigin(req),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 async function authenticateUser(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
@@ -27,14 +47,14 @@ async function authenticateUser(req: Request): Promise<string | null> {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) });
 
   try {
     const userId = await authenticateUser(req);
     if (!userId) {
       return new Response(JSON.stringify({ error: "Unauthorized. Please log in." }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -74,31 +94,31 @@ Key metrics you understand: Revenue, ROAS, CTR, CPC, CPM, Conversion Rate, Units
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
           status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
         return new Response(JSON.stringify({ error: "Payment required, please add funds." }), {
           status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         });
       }
       const t = await response.text();
       console.error("OpenRouter error:", response.status, t);
       return new Response(JSON.stringify({ error: "AI service error" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
     return new Response(response.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      headers: { ...corsHeaders(req), "Content-Type": "text/event-stream" },
     });
   } catch (e) {
     console.error("chat error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

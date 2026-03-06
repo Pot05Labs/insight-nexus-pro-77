@@ -1,11 +1,31 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+const ALLOWED_ORIGINS = [
+  "https://signalstack.africa",
+  "https://www.signalstack.africa",
+];
+
+function getAllowedOrigin(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  if (
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.includes(".lovable.app") ||
+    origin.includes(".lovableproject.com") ||
+    origin.startsWith("http://localhost")
+  ) {
+    return origin;
+  }
+  return ALLOWED_ORIGINS[0];
+}
+
+function corsHeaders(req: Request) {
+  return {
+    "Access-Control-Allow-Origin": getAllowedOrigin(req),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
@@ -763,7 +783,7 @@ function parseCSV(text: string, separator = ","): ParsedResult {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders(req) });
   }
 
   try {
@@ -771,7 +791,7 @@ Deno.serve(async (req) => {
     if (!uploadId) {
       return new Response(
         JSON.stringify({ error: "uploadId is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -785,7 +805,7 @@ Deno.serve(async (req) => {
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
     const userClient = createClient(
@@ -797,7 +817,7 @@ Deno.serve(async (req) => {
     if (authErr || !user) {
       return new Response(
         JSON.stringify({ error: "Invalid token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -820,14 +840,14 @@ Deno.serve(async (req) => {
     if (fetchErr || !upload) {
       return new Response(
         JSON.stringify({ error: "Upload not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 404, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
     if (upload.user_id !== user.id) {
       return new Response(
         JSON.stringify({ error: "Not authorized" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 403, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -841,7 +861,7 @@ Deno.serve(async (req) => {
       await updateStatus("error", "Failed to download file from storage");
       return new Response(
         JSON.stringify({ error: "Download failed" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -887,7 +907,7 @@ Deno.serve(async (req) => {
         await updateStatus("uploaded", `${fileType.toUpperCase()} files are not yet auto-processable. Export as CSV or XLSX.`);
         return new Response(
           JSON.stringify({ message: "File type not auto-processable", rowsInserted: 0 }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
         );
       }
     } catch (parseErr) {
@@ -895,7 +915,7 @@ Deno.serve(async (req) => {
       await updateStatus("error", msg);
       return new Response(
         JSON.stringify({ error: msg }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -903,7 +923,7 @@ Deno.serve(async (req) => {
       await updateStatus("error", "No data found in file");
       return new Response(
         JSON.stringify({ error: "No data in file" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -913,7 +933,7 @@ Deno.serve(async (req) => {
       await updateStatus("error", `File exceeds ${MAX_ROWS.toLocaleString()} row limit (found ${jsonRows.length.toLocaleString()} rows).`);
       return new Response(
         JSON.stringify({ error: "Row limit exceeded" }),
-        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 413, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -952,7 +972,7 @@ Deno.serve(async (req) => {
         await updateStatus("error", "Could not create project");
         return new Response(
           JSON.stringify({ error: "No project" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
         );
       }
       projectId = newProj.id;
@@ -1022,7 +1042,7 @@ Deno.serve(async (req) => {
             await updateStatus("error", `Data insert failed: ${error.message}`);
             return new Response(
               JSON.stringify({ error: error.message }),
-              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
             );
           }
         } else {
@@ -1063,7 +1083,7 @@ Deno.serve(async (req) => {
             await updateStatus("error", `Data insert failed: ${error.message}`);
             return new Response(
               JSON.stringify({ error: error.message }),
-              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
             );
           }
         } else {
@@ -1140,13 +1160,13 @@ Deno.serve(async (req) => {
         columnsMatched: Object.keys(isMixed ? { ...soFieldMap, ...cpFieldMap } : fieldMap),
         fieldMap: isMixed ? { ...soFieldMap, ...cpFieldMap } : fieldMap,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[process-upload] error:", err);
     return new Response(
       JSON.stringify({ error: "Internal error", details: String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
     );
   }
 });
