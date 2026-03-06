@@ -133,10 +133,11 @@ Include exactly 3-4 insights and 3 recommendations. Be specific with ZAR values,
             if (context) {
               await supabase
                 .from("narrative_reports")
-                .delete()
+                .update({ deleted_at: new Date().toISOString() })
                 .eq("user_id", context.userId)
                 .eq("project_id", context.projectId)
-                .eq("report_type", "strategic_insights");
+                .eq("report_type", "strategic_insights")
+                .is("deleted_at", null);
 
               await supabase.from("narrative_reports").insert({
                 user_id: context.userId,
