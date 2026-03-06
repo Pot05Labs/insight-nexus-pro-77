@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useProjectId } from "./useProjectId";
 import type { GlobalFilters } from "@/contexts/GlobalFilterContext";
@@ -37,7 +37,6 @@ export function useCampaignKPIs(filters: GlobalFilters, platform?: string | null
       };
     },
     enabled: !!projectId,
-    staleTime: 5_000,
-    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
   });
 }

@@ -68,7 +68,7 @@ export const LINE_COLORS = {
 } as const;
 
 /* ─── Animation ─── */
-export const CHART_ANIMATION_MS = 800;
+export const CHART_ANIMATION_MS = 250;
 
 /* ─── Standard heights ─── */
 export const CHART_HEIGHT = {

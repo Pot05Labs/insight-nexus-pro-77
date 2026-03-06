@@ -168,8 +168,9 @@ const ProductsPage = () => {
     return `Top product: ${top.name} at ${fmtZAR(top.revenue)} \u2014 ${pct}% of total revenue`;
   }, [top10, totalRevenue]);
 
-  if (isLoading && rawLoading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData && !rawLoading && !isLoading) return <div className="p-8"><EmptyState message="Upload data to see product analytics." /></div>;
+  const isAnyLoading = isLoading || rawLoading;
+  if (isAnyLoading && !hasData) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
+  if (!isAnyLoading && !hasData) return <div className="p-8"><EmptyState message="Upload data to see product analytics." /></div>;
 
   const SortIcon = ({ col }: { col: SortKey }) => (
     <ArrowUpDown className={`inline h-3 w-3 ml-1 cursor-pointer ${sortKey === col ? "text-primary" : "text-muted-foreground/40"}`} onClick={() => handleSort(col)} />

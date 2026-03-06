@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface SellOutRow {
@@ -32,41 +32,71 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
   const projectId = projects?.[0]?.id;
   if (!projectId) return [];
 
-  // Fetch rows for the project with a safety cap to prevent browser freezes.
-  // Supabase PostgREST default max_rows is 1000, so PAGE_SIZE must
-  // be <= 1000 or the server silently truncates the response and
-  // the hasMore check fails (rows.length < PAGE_SIZE → stops early).
-  // 50K rows is ~6MB of JSON — well within browser memory limits.
+  // Fetch rows with parallel batch pagination for speed.
+  // PostgREST max_rows = 1000, so PAGE_SIZE <= 1000.
+  // Fires batches of BATCH_SIZE concurrent requests instead of serial.
   const PAGE_SIZE = 1000;
   const MAX_ROWS = 50_000;
-  let allRows: SellOutRow[] = [];
-  let offset = 0;
-  let hasMore = true;
+  const BATCH_SIZE = 5;
+  const COLUMNS = "id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied";
 
-  while (hasMore) {
-    const { data: page, error } = await supabase
-      .from("sell_out_data")
-      .select("id, product_name_raw, brand, category, retailer, store_location, region, date, revenue, units_sold, cost, sku, sub_brand, format_size, units_supplied")
-      .eq("project_id", projectId)
-      .is("deleted_at", null)
-      .order("date", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
+  // First page — determine if more data exists
+  const { data: firstPage, error: firstError } = await supabase
+    .from("sell_out_data")
+    .select(COLUMNS)
+    .eq("project_id", projectId)
+    .is("deleted_at", null)
+    .order("date", { ascending: true })
+    .range(0, PAGE_SIZE - 1);
 
-    if (error) {
-      console.error("[useSellOutData] Fetch error at offset", offset, error.message);
-      break;
+  if (firstError) {
+    console.error("[useSellOutData] First page error", firstError.message);
+    return [];
+  }
+
+  const firstRows = (firstPage as SellOutRow[]) ?? [];
+  if (firstRows.length < PAGE_SIZE) {
+    console.log(`[useSellOutData] Fetched ${firstRows.length} sell-out rows (single page)`);
+    return firstRows;
+  }
+
+  // More pages needed — fetch in parallel batches
+  let allRows: SellOutRow[] = [...firstRows];
+  let offset = PAGE_SIZE;
+  let done = false;
+
+  while (!done && allRows.length < MAX_ROWS) {
+    const fetches: Promise<SellOutRow[]>[] = [];
+    for (let i = 0; i < BATCH_SIZE && offset < MAX_ROWS; i++) {
+      const start = offset;
+      fetches.push(
+        Promise.resolve(
+          supabase
+            .from("sell_out_data")
+            .select(COLUMNS)
+            .eq("project_id", projectId)
+            .is("deleted_at", null)
+            .order("date", { ascending: true })
+            .range(start, start + PAGE_SIZE - 1)
+        ).then(({ data, error }) => {
+          if (error) { console.error("[useSellOutData] Batch error at", start, error.message); return []; }
+          return (data as SellOutRow[]) ?? [];
+        })
+      );
+      offset += PAGE_SIZE;
     }
 
-    const rows = (page as SellOutRow[]) ?? [];
-    allRows = allRows.concat(rows);
+    const results = await Promise.all(fetches);
+    for (const rows of results) {
+      allRows = allRows.concat(rows);
+      if (rows.length < PAGE_SIZE) { done = true; break; }
+    }
 
     if (allRows.length >= MAX_ROWS) {
-      console.warn(`[useSellOutData] Capped at ${MAX_ROWS.toLocaleString()} rows. Dashboard will use this subset.`);
+      allRows = allRows.slice(0, MAX_ROWS);
+      console.warn(`[useSellOutData] Capped at ${MAX_ROWS.toLocaleString()} rows.`);
       break;
     }
-
-    offset += PAGE_SIZE;
-    hasMore = rows.length === PAGE_SIZE;
   }
 
   console.log(`[useSellOutData] Fetched ${allRows.length} total sell-out rows`);
@@ -79,8 +109,7 @@ export function useSellOutData() {
   const { data = [], isLoading } = useQuery({
     queryKey: ["sell-out-data"],
     queryFn: fetchSellOutData,
-    staleTime: 5_000,            // 5s — ensures fresh data when navigating between pages after uploads
-    refetchOnWindowFocus: false,  // Avoid redundant refetches when switching tabs
+    placeholderData: keepPreviousData,
   });
 
   const refetch = () => queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });

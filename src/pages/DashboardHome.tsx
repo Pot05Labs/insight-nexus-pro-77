@@ -528,7 +528,7 @@ const DashboardHome = () => {
 
         {/* ── 3. KEY FINDINGS (auto-computed, no AI) ── */}
         {hasData && !isLoading && keyFindings.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
             <Card className="mb-6">
               <CardHeader className="pb-3">
                 <CardTitle className="font-display text-base flex items-center gap-2">
@@ -664,7 +664,7 @@ const DashboardHome = () => {
 
                 {/* Campaign Efficiency — ROAS, iROAS, eCPM, CPS */}
                 {hasCampaigns && totalSpend > 0 && !isLoading && (
-                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                       <Card className="border-primary/20 bg-primary/3">
                         <CardContent className="p-4">
@@ -720,7 +720,7 @@ const DashboardHome = () => {
 
                 {/* Campaign Impact — Revenue Lift vs Baseline */}
                 {attributionResults.length > 0 && !isLoading && (
-                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
                     <Card className="mb-6">
                       <CardHeader>
                         <CardTitle className="font-display text-base">Campaign Impact — Revenue Lift vs Baseline</CardTitle>

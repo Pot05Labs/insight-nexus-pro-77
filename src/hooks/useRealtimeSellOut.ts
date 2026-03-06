@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
  * Calls `onDataChange` whenever an INSERT, UPDATE, or DELETE occurs,
  * so the consumer can refetch dashboard data.
  *
- * Uses a debounce (3s) to avoid thrashing during batch inserts
+ * Uses a debounce (800ms) to avoid thrashing during batch inserts
  * (which fire hundreds of INSERT events in quick succession).
  */
 export function useRealtimeSellOut(
@@ -32,13 +32,13 @@ export function useRealtimeSellOut(
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          // Debounce: wait 3s after the LAST event before refetching.
-          // During a batch insert of 3,000 rows this avoids 3,000 refetches
+          // Debounce: wait 800ms after the LAST event before refetching.
+          // During a batch insert this avoids thousands of refetches
           // and instead fires once after the batch completes.
           if (timerRef.current) clearTimeout(timerRef.current);
           timerRef.current = setTimeout(() => {
             cbRef.current();
-          }, 3000);
+          }, 800);
         }
       )
       .subscribe();

@@ -20,7 +20,7 @@ const KpiCard = ({ label, value, icon: Icon, loading, delay = 0, colorClass = "b
   const [bgClass, textClass] = colorClass.includes(" ") ? colorClass.split(" ") : ["bg-primary/8", "text-primary"];
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
       <Card className="glass-card card-hover">
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2">

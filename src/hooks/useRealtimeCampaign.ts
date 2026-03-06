@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
  * Calls `onDataChange` whenever an INSERT, UPDATE, or DELETE occurs,
  * so the consumer can refetch campaign data.
  *
- * Uses a debounce (3s) to avoid thrashing during batch inserts
+ * Uses a debounce (800ms) to avoid thrashing during batch inserts
  * (which fire hundreds of INSERT events in quick succession).
  */
 export function useRealtimeCampaign(
@@ -32,13 +32,13 @@ export function useRealtimeCampaign(
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          // Debounce: wait 3s after the LAST event before refetching.
+          // Debounce: wait 800ms after the LAST event before refetching.
           // During a batch insert this avoids hundreds of refetches
           // and instead fires once after the batch completes.
           if (timerRef.current) clearTimeout(timerRef.current);
           timerRef.current = setTimeout(() => {
             cbRef.current();
-          }, 3000);
+          }, 800);
         }
       )
       .subscribe();

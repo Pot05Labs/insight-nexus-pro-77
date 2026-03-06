@@ -47,10 +47,10 @@ const PageLoader = () => (
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30 * 1000,        // 30 seconds — keep data fresh after uploads
-      gcTime: 10 * 60 * 1000,      // 10 minutes — keep cache warm
-      retry: 1,                     // single retry (default 3 is too aggressive)
-      refetchOnWindowFocus: true,   // refetch when user returns to tab
+      staleTime: 5 * 60 * 1000,     // 5 min — Realtime + invalidateQueries handles post-upload refresh
+      gcTime: 10 * 60 * 1000,       // 10 min — keep cache warm across page switches
+      retry: 1,                      // single retry (default 3 is too aggressive)
+      refetchOnWindowFocus: false,   // Realtime subscriptions handle live updates
     },
   },
 });

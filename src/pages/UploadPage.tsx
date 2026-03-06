@@ -237,18 +237,8 @@ const UploadPage = () => {
             : `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
         });
 
-        // Invalidate ALL dashboard caches so new data appears immediately
-        queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
-        queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
-        queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
-        queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
-        queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-        queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
-        queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
-        queryClient.invalidateQueries({ queryKey: ["top-products"] });
-        queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
-        queryClient.invalidateQueries({ queryKey: ["filter-options"] });
-        queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
+        // Cache invalidation handled by runProcessing() after orchestrateUpload
+        // completes — no need to duplicate here (avoids cascade refetch).
 
         // Learning pipeline runs once after all uploads complete (in uploadAll)
       }

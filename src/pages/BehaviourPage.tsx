@@ -195,8 +195,9 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
 
   // ── Render ──
 
-  if (isLoading && rawLoading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData && !rawLoading && !isLoading && data.length === 0) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
+  const isAnyLoading = isLoading || rawLoading;
+  if (isAnyLoading && !hasData) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
+  if (!isAnyLoading && !hasData) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
