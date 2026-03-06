@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseFile, type ParseResult, type ParsedFile, type ParsedPPTX } from "./fileParser";
 import { mapColumns, type ColumnMapping, type DataType } from "./columnMapper";
 import { toSellOutRecord, toCampaignRecord } from "./valueTransformer";
+import { audit } from "@/lib/audit-client";
 // Learning pipeline is now called once after all uploads complete (in UploadPage.tsx)
 
 /* ------------------------------------------------------------------ */
@@ -117,7 +118,7 @@ export async function orchestrateUpload(
   onProgress: ProgressCallback,
 ): Promise<UploadResult> {
 
-  const audit: UploadAudit = {
+  const auditData: UploadAudit = {
     fileRowCount: 0,
     mappedRowCount: 0,
     attemptedInserts: 0,
@@ -128,6 +129,8 @@ export async function orchestrateUpload(
   };
 
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+
+  audit({ action: "data.upload_start", meta: { fileName: file.name, fileSize: file.size, ext }, resourceId: uploadId, resourceType: "data_upload" });
 
   // ══════════════════════════════════════════════════
   //  STEP 1: PARSE
@@ -141,7 +144,7 @@ export async function orchestrateUpload(
     return {
       success: false,
       dataType: "unknown",
-      audit,
+      audit: auditData,
       mapping: { dataType: "unknown", confidence: 0, fieldMap: {}, unmappedColumns: [], source: "local" },
       error: `Parse failed: ${err.message}`,
     };
@@ -158,8 +161,8 @@ export async function orchestrateUpload(
 
   if (parseResult.type === "tabular") {
     const parsed = parseResult.data;
-    audit.fileRowCount = parsed.rowCount;
-    audit.warnings.push(...parsed.warnings);
+    auditData.fileRowCount = parsed.rowCount;
+    auditData.warnings.push(...parsed.warnings);
     headers = parsed.headers;
     dataRows = parsed.rows;
 
@@ -179,7 +182,7 @@ export async function orchestrateUpload(
       return {
         success: false,
         dataType: "unknown",
-        audit,
+        audit: auditData,
         mapping,
         error: "Could not detect data type from column headers.",
       };
@@ -188,7 +191,7 @@ export async function orchestrateUpload(
   } else {
     // PPTX: extract via LLM
     const pptx = parseResult.data;
-    audit.warnings.push(...pptx.warnings);
+    auditData.warnings.push(...pptx.warnings);
 
     onProgress({ percent: 30, stage: `Extracted text from ${pptx.slideCount} slides. AI extracting campaign data...` });
 
@@ -208,7 +211,7 @@ export async function orchestrateUpload(
       return {
         success: false,
         dataType: "unknown",
-        audit,
+        audit: auditData,
         mapping: { dataType: "unknown", confidence: 0, fieldMap: {}, unmappedColumns: [], source: "local" },
         error: "PPTX extraction failed. No campaign metrics found.",
       };
@@ -217,7 +220,7 @@ export async function orchestrateUpload(
     mapping = llmResult.mapping;
     dataRows = llmResult.rows;
     headers = Object.keys(dataRows[0] ?? {});
-    audit.fileRowCount = dataRows.length;
+    auditData.fileRowCount = dataRows.length;
   }
 
   // ══════════════════════════════════════════════════
@@ -239,7 +242,7 @@ export async function orchestrateUpload(
     projectId = newProj?.id;
   }
   if (!projectId) {
-    return { success: false, dataType: mapping.dataType, audit, mapping, error: "No project found." };
+    return { success: false, dataType: mapping.dataType, audit: auditData, mapping, error: "No project found." };
   }
 
   // ══════════════════════════════════════════════════
@@ -280,14 +283,14 @@ export async function orchestrateUpload(
         const records = batch.map(row =>
           toSellOutRecord(row, mapping, uploadId, userId, projectId!, sourceName)
         );
-        audit.attemptedInserts += records.length;
+        auditData.attemptedInserts += records.length;
 
         const { error } = await supabase.from("sell_out_data").insert(records as any);
         if (error) {
-          audit.failedInserts += records.length;
-          audit.failedBatches.push(`sell_out batch ${batchNum}: ${error.message}`);
+          auditData.failedInserts += records.length;
+          auditData.failedBatches.push(`sell_out batch ${batchNum}: ${error.message}`);
         } else {
-          audit.successfulInserts += records.length;
+          auditData.successfulInserts += records.length;
         }
       }
 
@@ -295,14 +298,14 @@ export async function orchestrateUpload(
         const records = batch.map(row =>
           toCampaignRecord(row, mapping, uploadId, userId, projectId!, ext)
         );
-        audit.attemptedInserts += records.length;
+        auditData.attemptedInserts += records.length;
 
         const { error } = await supabase.from("campaign_data_v2").insert(records as any);
         if (error) {
-          audit.failedInserts += records.length;
-          audit.failedBatches.push(`campaign batch ${batchNum}: ${error.message}`);
+          auditData.failedInserts += records.length;
+          auditData.failedBatches.push(`campaign batch ${batchNum}: ${error.message}`);
         } else {
-          audit.successfulInserts += records.length;
+          auditData.successfulInserts += records.length;
         }
       }
 
@@ -323,26 +326,26 @@ export async function orchestrateUpload(
   onProgress({ percent: 90, stage: "Verifying..." });
 
   // Audit check
-  audit.mappedRowCount = dataRows.length;
+  auditData.mappedRowCount = dataRows.length;
 
-  if (audit.fileRowCount !== audit.mappedRowCount) {
-    audit.warnings.push(`Row count drift: parsed ${audit.fileRowCount}, mapped ${audit.mappedRowCount}`);
+  if (auditData.fileRowCount !== auditData.mappedRowCount) {
+    auditData.warnings.push(`Row count drift: parsed ${auditData.fileRowCount}, mapped ${auditData.mappedRowCount}`);
   }
-  if (audit.attemptedInserts !== audit.successfulInserts + audit.failedInserts) {
-    audit.warnings.push(`Insert count mismatch: attempted ${audit.attemptedInserts}, success ${audit.successfulInserts} + failed ${audit.failedInserts}`);
+  if (auditData.attemptedInserts !== auditData.successfulInserts + auditData.failedInserts) {
+    auditData.warnings.push(`Insert count mismatch: attempted ${auditData.attemptedInserts}, success ${auditData.successfulInserts} + failed ${auditData.failedInserts}`);
   }
 
   // Update upload record
   const { error: updateError } = await supabase.from("data_uploads").update({
-    status: audit.successfulInserts > 0 ? "ready" : "error",
-    row_count: audit.fileRowCount,  // Store total file rows for accurate reporting
+    status: auditData.successfulInserts > 0 ? "ready" : "error",
+    row_count: auditData.fileRowCount,  // Store total file rows for accurate reporting
     data_type: mapping.dataType,
     column_names: headers,
     column_mapping: mapping.fieldMap,
     project_id: projectId,
-    error_message: audit.failedInserts > 0
-      ? `${audit.successfulInserts} of ${audit.fileRowCount} rows inserted, ${audit.failedInserts} failed. ${audit.failedBatches[0] ?? ""}`
-      : (audit.warnings.length > 0 ? audit.warnings.join("; ") : null),
+    error_message: auditData.failedInserts > 0
+      ? `${auditData.successfulInserts} of ${auditData.fileRowCount} rows inserted, ${auditData.failedInserts} failed. ${auditData.failedBatches[0] ?? ""}`
+      : (auditData.warnings.length > 0 ? auditData.warnings.join("; ") : null),
   }).eq("id", uploadId);
 
   if (updateError) {
@@ -356,12 +359,28 @@ export async function orchestrateUpload(
 
   // Learning pipeline is triggered once after all uploads complete (UploadPage.tsx uploadAll)
 
-  console.log(`[orchestrator] Upload complete:`, JSON.stringify(audit));
+  console.log(`[orchestrator] Upload complete:`, JSON.stringify(auditData));
+
+  if (auditData.successfulInserts > 0) {
+    audit({
+      action: "data.upload_complete",
+      meta: { rows: auditData.successfulInserts, failed: auditData.failedInserts, dataType: mapping.dataType },
+      resourceId: uploadId,
+      resourceType: "data_upload",
+    });
+  } else {
+    audit({
+      action: "data.upload_fail",
+      meta: { error: auditData.failedBatches[0] ?? "No rows inserted" },
+      resourceId: uploadId,
+      resourceType: "data_upload",
+    });
+  }
 
   return {
-    success: audit.successfulInserts > 0,
+    success: auditData.successfulInserts > 0,
     dataType: mapping.dataType,
-    audit,
+    audit: auditData,
     mapping,
   };
 }

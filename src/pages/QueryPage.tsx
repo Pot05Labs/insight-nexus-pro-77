@@ -8,7 +8,9 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { streamAiChat, type Msg } from "@/services/aiChatStream";
+import type { Msg } from "@/services/aiChatStream";
+import { validateAiQueryResponse, looksLikeQuery } from "@/services/queryValidator";
+import { audit } from "@/lib/audit-client";
 
 type QueryResult = { columns: string[]; rows: Record<string, unknown>[] };
 
@@ -66,14 +68,11 @@ const QueryPage = () => {
 
   const executeQuery = async (querySpec: { table: string; select: string; filters?: { column: string; operator: string; value: string }[]; order?: { column: string; ascending: boolean }; limit?: number }): Promise<QueryResult | null> => {
     try {
-      const validTables = ["sell_out_data", "campaign_data_v2", "computed_metrics"];
-      if (!validTables.includes(querySpec.table)) return null;
-
       // Tenant scoping: get current user for mandatory user_id filter
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) return null;
 
-      let query = supabase.from(querySpec.table as any).select(querySpec.select);
+      let query = supabase.from(querySpec.table as "sell_out_data" | "campaign_data_v2" | "computed_metrics").select(querySpec.select);
 
       // Always exclude soft-deleted rows
       if (["sell_out_data", "campaign_data_v2", "narrative_reports", "computed_metrics"].includes(querySpec.table)) {
@@ -83,12 +82,8 @@ const QueryPage = () => {
       // Enforce tenant scoping — ALWAYS filter by user_id (defense-in-depth alongside RLS)
       query = query.eq("user_id", currentUser.id);
 
-      // Sanitize AI-generated filters: strip any attempts to override tenant scoping or soft-delete
-      const safeFilters = (querySpec.filters ?? []).filter(
-        f => !["user_id", "project_id", "deleted_at"].includes(f.column)
-      );
-
-      for (const f of safeFilters) {
+      // Filters are already validated by Zod schema — forbidden columns stripped
+      for (const f of querySpec.filters ?? []) {
         if (f.operator === "eq") query = query.eq(f.column, f.value);
         else if (f.operator === "neq") query = query.neq(f.column, f.value);
         else if (f.operator === "gt") query = query.gt(f.column, f.value);
@@ -188,22 +183,28 @@ const QueryPage = () => {
         }
       }
 
-      // Try to parse query spec from AI response
-      let querySpec: { table?: string; select?: string; explanation?: string; [k: string]: unknown } | null = null;
-      try {
-        const jsonMatch = fullText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) querySpec = JSON.parse(jsonMatch[0]);
-      } catch { /* not valid JSON */ }
+      // Validate AI response through Zod query schema
+      if (looksLikeQuery(fullText)) {
+        const validation = validateAiQueryResponse(fullText);
 
-      if (querySpec?.table && querySpec?.select) {
-        const result = await executeQuery(querySpec as Parameters<typeof executeQuery>[0]);
-        const explanation = querySpec.explanation || "Query executed successfully.";
+        if (validation.ok) {
+          // Query passed Zod validation — safe to execute
+          audit({ action: "ai.query", meta: { table: validation.query.table, select: validation.query.select } });
 
-        if (result && result.rows.length > 0) {
-          upsert(explanation);
-          setQueryResults(prev => ({ ...prev, [msgIndex]: result }));
+          const result = await executeQuery(validation.query as Parameters<typeof executeQuery>[0]);
+          const explanation = validation.query.explanation || "Query executed successfully.";
+
+          if (result && result.rows.length > 0) {
+            upsert(explanation);
+            setQueryResults(prev => ({ ...prev, [msgIndex]: result }));
+          } else {
+            upsert(`${explanation}\n\nNo results found for this query.`);
+          }
         } else {
-          upsert(`${explanation}\n\nNo results found for this query.`);
+          // Query failed validation — show AI response as text (don't execute)
+          console.warn("[QueryPage] AI query rejected by validator:", validation.errors);
+          audit({ action: "ai.query_fail", meta: { errors: validation.errors, raw: validation.raw } });
+          upsert(fullText);
         }
       } else {
         // AI returned a natural language response instead of query spec
