@@ -11,10 +11,10 @@
 | Severity | Count |
 |----------|-------|
 | Critical | 2 |
-| High | 5 |
-| Medium | 9 |
+| High | 6 |
+| Medium | 11 |
 | Low | 4 |
-| **Total** | **20** |
+| **Total** | **23** |
 
 ---
 
@@ -82,6 +82,14 @@
 - **Description:** The realtime subscription callback at line 54-57 queries `data_uploads` with `.in("status", ["uploaded", "processing"])` but does NOT include the required `.neq("status", "archived")` filter. While the `in` filter for specific statuses partially mitigates this (archived records won't match "uploaded" or "processing"), this violates the project convention and could mask archived-but-reprocessing records.
 - **Risk:** If an archived upload transitions back to "processing" status (e.g., due to a retry bug), it would be counted, potentially re-exposing deleted data.
 - **Fix:** Add `.neq("status", "archived")` to the query at line 57 for consistency with the project's soft-delete convention.
+
+### 5b. No Server-Side File Size or Type Validation in process-upload
+- **File:** `supabase/functions/process-upload/index.ts:543-667`
+- **Type:** Missing Input Validation (CWE-20)
+- **Severity:** High
+- **Description:** The process-upload Edge Function downloads and parses whatever file is at the storage path without validating file size or type server-side. The file_type column is set by the client at insert time and could be spoofed. The client-side 100MB limit is trivially bypassed via direct API calls. An authenticated user could upload an arbitrarily large file, insert a data_uploads record with a fake file_type, and invoke process-upload to crash the worker.
+- **Risk:** Denial of service by uploading massive files. Potential unexpected behavior from mismatched file types.
+- **Fix:** Add server-side file size check (reject > 100MB), validate file_type against an allowlist, and verify blob size before parsing.
 
 ### 6. Dependency Vulnerabilities — 19 Known CVEs (10 High Severity)
 - **File:** `package.json` / `package-lock.json`
@@ -167,7 +175,23 @@
 - **Risk:** An AI-generated (or prompt-injected) query could use overly broad wildcards to exfiltrate large amounts of data within a single request.
 - **Fix:** Reject standalone wildcard patterns (`%`, `_`) for `like`/`ilike` operators.
 
-### 14. Missing `project_id` Scoping on Some Queries
+### 14. org-management Edge Function Performs Hard Deletes
+- **File:** `supabase/functions/org-management/index.ts:390-394,430-434`
+- **Type:** Policy Violation / Data Loss (CWE-460)
+- **Severity:** Medium
+- **Description:** The remove_member and revoke_invitation actions use .delete() instead of soft-deleting with deleted_at. This violates the project rule that data must never be hard deleted. Deleted membership and invitation records are unrecoverable and unauditable.
+- **Risk:** Loss of audit trail for organization membership changes. Irrecoverable data deletion.
+- **Fix:** Add a deleted_at column to org_members and org_invitations tables, use .update({ deleted_at: new Date().toISOString() }) instead of .delete().
+
+### 14b. Production Console Logging Leaks User Data
+- **Files:** `src/services/uploadOrchestrator.ts:226,296`, 19 files with 62 console statements
+- **Type:** Information Disclosure (CWE-532)
+- **Severity:** Medium
+- **Description:** Production frontend code includes console.log calls that leak sensitive data to the browser console. Most critically, uploadOrchestrator.ts:296 logs sample sell-out records including actual revenue/cost data. The learningPipeline logs intelligence content. These are visible in browser DevTools to anyone with access to the page.
+- **Risk:** Sensitive business data (revenue, costs, campaign spend) exposed via browser console.
+- **Fix:** Strip console.log calls from production builds using a Vite plugin (e.g., vite-plugin-remove-console) or replace with a conditional logger that only runs in development.
+
+### 15. Missing `project_id` Scoping on Some Queries
 - **File:** `src/pages/QueryPage.tsx:45-46`, `src/hooks/useRealtimeCounts.ts:28-31`
 - **Type:** Broken Access Control (CWE-863)
 - **Severity:** Medium
@@ -179,7 +203,7 @@
 
 ## Low Findings
 
-### 15. Supabase URL Hardcoded as Fallback
+### 16. Supabase URL Hardcoded as Fallback
 - **Files:** `src/integrations/supabase/client.ts:7`, `src/services/aiChatStream.ts:5`
 - **Type:** Information Disclosure (CWE-200)
 - **Severity:** Low
@@ -187,7 +211,7 @@
 - **Risk:** Enables targeted enumeration of the Supabase project. Minimal risk since RLS should protect data.
 - **Fix:** Remove fallback; require env var at build time.
 
-### 16. Auth Token Stored in `localStorage`
+### 17. Auth Token Stored in `localStorage`
 - **File:** `src/integrations/supabase/client.ts:15`
 - **Type:** Insecure Token Storage (CWE-922)
 - **Severity:** Low
@@ -195,14 +219,14 @@
 - **Risk:** If an XSS vulnerability is found, the auth token can be stolen. However, this is standard practice for SPAs and Supabase's recommended approach.
 - **Fix:** No immediate action. Ensure no XSS vectors exist (which this audit largely confirms).
 
-### 17. No Content Security Policy (CSP) Headers
+### 18. No Content Security Policy (CSP) Headers
 - **File:** `index.html` (no CSP meta tag)
 - **Type:** Missing Security Header (CWE-1021)
 - **Severity:** Low
 - **Description:** The application does not set a Content Security Policy header, which would help mitigate XSS attacks by controlling which scripts, styles, and resources can be loaded.
 - **Fix:** Add a CSP meta tag to `index.html` or configure CSP headers at the hosting level (Lovable/CDN). Start with a report-only policy.
 
-### 18. Outdated Deno Standard Library Imports
+### 19. Outdated Deno Standard Library Imports
 - **Files:** `supabase/functions/stripe-webhook/index.ts:1` (`std@0.190.0`), `supabase/functions/chat/index.ts:1` (`std@0.168.0`), `supabase/functions/health-check/index.ts:1` (`std@0.168.0`)
 - **Type:** Outdated Dependencies (CWE-1395)
 - **Severity:** Low
