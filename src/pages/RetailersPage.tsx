@@ -1,33 +1,68 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown, Lightbulb } from "lucide-react";
+import { ArrowUpDown, Lightbulb, DollarSign, ShoppingCart, Tag, Package, ChevronLeft, ChevronRight } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import KpiCard from "@/components/KpiCard";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useCampaignData } from "@/hooks/useCampaignData";
+import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
+import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
 import { chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, chartTooltipStyle } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { buildRetailersSummary } from "@/services/insightsSnapshot";
 
 type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 
+const PAGE_SIZE = 25;
+
 const RetailersPage = () => {
-  const { data, loading } = useSellOutData();
+  const { data: rawData, loading } = useSellOutData();
+  const { data: campaigns } = useCampaignData();
+  const { filterSellOut } = useGlobalFilters();
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
+  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const [page, setPage] = useState(0);
+
+  // Apply global filters
+  const data = useMemo(() => filterSellOut(rawData), [rawData, filterSellOut]);
+
+  // Period-over-period comparison
+  const comparison = usePeriodComparison(data, campaigns, periodType);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(false); }
+    setPage(0);
   };
 
+  // --- KPI values ---
+  const totalRevenue = useMemo(() => data.reduce((s, r) => s + Number(r.revenue ?? 0), 0), [data]);
+  const totalUnits = useMemo(() => data.reduce((s, r) => s + Number(r.units_sold ?? 0), 0), [data]);
+  const avgOrderValue = useMemo(() => totalUnits > 0 ? totalRevenue / totalUnits : 0, [totalRevenue, totalUnits]);
+  const uniqueProductCount = useMemo(() => new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size, [data]);
+
+  const kpiCards = useMemo(() => [
+    { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
+    { label: "Units Sold", value: totalUnits.toLocaleString(), icon: ShoppingCart, delta: comparison.units.deltaPct },
+    { label: "Avg Order Value", value: fmtZAR(avgOrderValue), icon: Tag, delta: comparison.aov.deltaPct },
+    { label: "Unique Products", value: uniqueProductCount.toString(), icon: Package, delta: comparison.products.deltaPct },
+  ], [totalRevenue, totalUnits, avgOrderValue, uniqueProductCount, comparison]);
+
   // Revenue by retailer (all time for chart)
-  const revByRetailer = aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const chartData = Object.entries(revByRetailer).sort(([, a], [, b]) => b - a).slice(0, 8)
-    .map(([retailer, revenue]) => ({ retailer, revenue: Math.round(revenue) }));
+  const revByRetailer = useMemo(() => aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0)), [data]);
+  const chartData = useMemo(() =>
+    Object.entries(revByRetailer).sort(([, a], [, b]) => b - a).slice(0, 8)
+      .map(([retailer, revenue]) => ({ retailer, revenue: Math.round(revenue) })),
+    [revByRetailer]
+  );
 
   // Table data with benchmarking index (100 = average)
   const tableData = useMemo(() => {
@@ -81,7 +116,7 @@ const RetailersPage = () => {
     });
   }, [tableData]);
 
-  const radarRetailers = tableData.slice(0, 6).map((r) => r.retailer);
+  const radarRetailers = useMemo(() => tableData.slice(0, 6).map((r) => r.retailer), [tableData]);
   const radarColors = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(224 15% 45%)"];
 
   const hasData = data.length > 0;
@@ -100,7 +135,6 @@ const RetailersPage = () => {
   }, [data]);
 
   // Key finding: top retailer by revenue
-  const totalRevenue = useMemo(() => data.reduce((s, r) => s + Number(r.revenue ?? 0), 0), [data]);
   const keyFinding = useMemo(() => {
     if (tableData.length === 0 || totalRevenue === 0) return null;
     const top = tableData[0];
@@ -117,28 +151,63 @@ const RetailersPage = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Retailers</h1>
-        <p className="text-muted-foreground text-sm">Retailer channel intelligence — distribution effectiveness and choice architecture.</p>
-        {hasData && dateRange && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {uniqueRetailers.toLocaleString()} retailers &middot; {uniqueStores.toLocaleString()} stores &middot; {dateRange}
-          </p>
-        )}
+      {/* Header with period selector */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Retailers</h1>
+          <p className="text-muted-foreground text-sm">Retailer channel intelligence — distribution effectiveness and choice architecture.</p>
+          {hasData && dateRange && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {uniqueRetailers.toLocaleString()} retailers &middot; {uniqueStores.toLocaleString()} stores &middot; {dateRange}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-1">
+            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
+              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="WoW">Week-on-Week</SelectItem>
+                <SelectItem value="MoM">Month-on-Month</SelectItem>
+                <SelectItem value="YoY">Year-on-Year</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasData && comparison.currentLabel && comparison.previousLabel && (
+              <span className="text-xs text-muted-foreground">
+                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
+              </span>
+            )}
+          </div>
+          <ExportCsvButton
+            filename="Retailers"
+            headers={["Retailer", "Revenue", "Units", "Avg Order Value", "Stores", "Index"]}
+            rows={tableData.map((r) => [r.retailer, r.revenue, r.units, r.aov.toFixed(2), r.stores, r.index])}
+          />
+        </div>
       </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpiCards.map((kpi, i) => (
+          <KpiCard
+            key={kpi.label}
+            label={kpi.label}
+            value={kpi.value}
+            icon={kpi.icon}
+            loading={loading}
+            delay={i * 0.06}
+            delta={kpi.delta}
+            periodLabel={comparison.previousLabel}
+          />
+        ))}
+      </div>
+
       {keyFinding && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
           <Lightbulb className="h-4 w-4 text-accent shrink-0" />
           <span className="text-foreground/80">{keyFinding}</span>
         </div>
       )}
-      <div className="flex items-center gap-3">
-        <ExportCsvButton
-          filename="Retailers"
-          headers={["Retailer", "Revenue", "Units", "Avg Order Value", "Stores", "Index"]}
-          rows={tableData.map((r) => [r.retailer, r.revenue, r.units, r.aov.toFixed(2), r.stores, r.index])}
-        />
-      </div>
 
       <Card className="glass-card">
         <CardHeader><CardTitle className="font-display text-base">Revenue by Retailer</CardTitle></CardHeader>
@@ -187,7 +256,7 @@ const RetailersPage = () => {
         </Card>
       )}
 
-      {/* Retailer Performance Table */}
+      {/* Retailer Performance Table with Pagination */}
       <Card>
         <CardHeader><CardTitle className="font-display text-base">Retailer Performance</CardTitle></CardHeader>
         <CardContent>
@@ -204,7 +273,7 @@ const RetailersPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {tableData.map((r, i) => (
+                {tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((r, i) => (
                   <TableRow key={i}>
                     <TableCell className="text-sm font-medium">{r.retailer}</TableCell>
                     <TableCell className="text-sm text-right font-medium">{fmtZAR(r.revenue)}</TableCell>
@@ -221,6 +290,21 @@ const RetailersPage = () => {
               </TableBody>
             </Table>
           </div>
+          {tableData.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <span className="text-xs text-muted-foreground">
+                Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, tableData.length)} of {tableData.length}
+              </span>
+              <div className="flex gap-1">
+                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= tableData.length} onClick={() => setPage(p => p + 1)}>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -3,11 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Lightbulb, Loader2, Wrench } from "lucide-react";
+import { Lightbulb, Loader2, Wrench, DollarSign, ShoppingCart, MapPin } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import EmptyState from "@/components/EmptyState";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import KpiCard from "@/components/KpiCard";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useCampaignData } from "@/hooks/useCampaignData";
+import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
+import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE } from "@/lib/chart-utils";
 import { resolveProvince, VALID_PROVINCE_SET } from "@/lib/sa-store-provinces";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
@@ -19,16 +24,26 @@ import { getCurrentProjectContext } from "@/services/projectContext";
 
 const GeographyPage = () => {
   const { data, loading, refetch } = useSellOutData();
+  const { data: campaigns } = useCampaignData();
+  const { filterSellOut } = useGlobalFilters();
   const { toast } = useToast();
   const [repairing, setRepairing] = useState(false);
-  const hasData = data.length > 0;
+  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+
+  // Apply global filters
+  const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
+
+  // Period-over-period comparison
+  const comparison = usePeriodComparison(filteredData, campaigns, periodType);
+
+  const hasData = filteredData.length > 0;
 
   // ── Pre-compute province for every row ONCE, keyed by row id ──────
   // This avoids calling inferRegion 4+ times per row across filter/aggregate/table.
   const rowProvinceMap = useMemo(() => {
     const map = new Map<string, string | null>();
 
-    for (const r of data) {
+    for (const r of filteredData) {
       map.set(
         r.id,
         resolveProvince({
@@ -39,25 +54,25 @@ const GeographyPage = () => {
     }
 
     return map;
-  }, [data]);
+  }, [filteredData]);
 
   // Helper to get cached province for a row
-  const getProvince = (r: typeof data[0]): string | null => rowProvinceMap.get(r.id) ?? null;
+  const getProvince = (r: typeof filteredData[0]): string | null => rowProvinceMap.get(r.id) ?? null;
 
   // ── Top 5 stores by revenue (uses all rows with store_location) ──
   const storeData = useMemo(() => {
-    const storesOnly = data.filter((r) => r.store_location && r.store_location.trim() !== "");
+    const storesOnly = filteredData.filter((r) => r.store_location && r.store_location.trim() !== "");
     const revByStore = aggregate(storesOnly, (r) => r.store_location!.trim(), (r) => Number(r.revenue ?? 0));
     return Object.entries(revByStore)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 5)
       .map(([store, revenue]) => ({ store, revenue: Math.round(revenue) }));
-  }, [data]);
+  }, [filteredData]);
 
   // ── Province data (only rows with resolved province) ──────────────
   const mappedData = useMemo(
-    () => data.filter((r) => getProvince(r) !== null),
-    [data, rowProvinceMap],
+    () => filteredData.filter((r) => getProvince(r) !== null),
+    [filteredData, rowProvinceMap],
   );
 
   const regionData = useMemo(() => {
@@ -87,19 +102,19 @@ const GeographyPage = () => {
   );
 
   const uniqueStores = useMemo(
-    () => new Set(data.map((r) => r.store_location).filter(Boolean)).size,
-    [data],
+    () => new Set(filteredData.map((r) => r.store_location).filter(Boolean)).size,
+    [filteredData],
   );
 
   const dateRange = useMemo(() => {
-    const dates = data.map((r) => r.date).filter(Boolean).sort();
+    const dates = filteredData.map((r) => r.date).filter(Boolean).sort();
     if (dates.length === 0) return "";
     const fmt = (d: string) =>
       new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
     const first = fmt(dates[0]!);
     const last = fmt(dates[dates.length - 1]!);
     return first === last ? first : `${first} \u2013 ${last}`;
-  }, [data]);
+  }, [filteredData]);
 
   // ── Key finding ───────────────────────────────────────────────────
   const totalRevenue = useMemo(
@@ -114,8 +129,14 @@ const GeographyPage = () => {
     return `Strongest region: ${top.region} at ${fmtZAR(top.revenue)} \u2014 ${pct}% of national revenue`;
   }, [regionData, totalRevenue]);
 
+  // ── KPI values ──────────────────────────────────────────────────
+  const totalUnits = useMemo(
+    () => filteredData.reduce((s, r) => s + Number(r.units_sold ?? 0), 0),
+    [filteredData],
+  );
+
   // ── AI data summary ───────────────────────────────────────────────
-  const dataSummary = useMemo(() => buildGeographySummary(data)?.summary ?? "", [data]);
+  const dataSummary = useMemo(() => buildGeographySummary(filteredData)?.summary ?? "", [filteredData]);
 
   const handleRepairProvinceMapping = async () => {
     setRepairing(true);
@@ -151,7 +172,7 @@ const GeographyPage = () => {
   // ── Render ────────────────────────────────────────────────────────
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see geographic analytics." /></div>;
+  if (data.length === 0) return <div className="p-8"><EmptyState message="Upload data to see geographic analytics." /></div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -170,6 +191,21 @@ const GeographyPage = () => {
           )}
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-1">
+            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
+              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="WoW">Week-on-Week</SelectItem>
+                <SelectItem value="MoM">Month-on-Month</SelectItem>
+                <SelectItem value="YoY">Year-on-Year</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasData && comparison.currentLabel && comparison.previousLabel && (
+              <span className="text-xs text-muted-foreground">
+                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
+              </span>
+            )}
+          </div>
           <Button variant="outline" onClick={handleRepairProvinceMapping} disabled={repairing}>
             {repairing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Wrench className="h-4 w-4 mr-1.5" />}
             {repairing ? "Repairing..." : "Repair Province Mapping"}
@@ -180,6 +216,29 @@ const GeographyPage = () => {
             rows={provinceTable.map((r) => [r.region, r.revenue, r.units, r.aov.toFixed(2)])}
           />
         </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <KpiCard
+          label="Total Revenue"
+          value={fmtZAR(totalRevenue)}
+          icon={DollarSign}
+          delta={comparison.revenue.deltaPct}
+          periodLabel={comparison.previousLabel}
+        />
+        <KpiCard
+          label="Units Sold"
+          value={totalUnits.toLocaleString()}
+          icon={ShoppingCart}
+          delta={comparison.units.deltaPct}
+          periodLabel={comparison.previousLabel}
+        />
+        <KpiCard
+          label="Provinces with Data"
+          value={uniqueRegions.toString()}
+          icon={MapPin}
+        />
       </div>
 
       {/* Key Finding */}

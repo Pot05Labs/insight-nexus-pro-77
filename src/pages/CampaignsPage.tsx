@@ -19,6 +19,8 @@ import KpiCard from "@/components/KpiCard";
 import EmptyState from "@/components/EmptyState";
 import { fmtZAR, useSellOutData } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
+import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
+import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, LINE_COLORS } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
@@ -32,27 +34,37 @@ const CampaignsPage = () => {
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
+  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
   const PAGE_SIZE = 25;
   const reportRef = useRef<HTMLDivElement>(null);
   const { data: sellOutData } = useSellOutData();
 
-  const platforms = useMemo(() => [...new Set(campaigns.map((c) => c.platform).filter(Boolean))].sort() as string[], [campaigns]);
-  const filtered = platformFilter === "all" ? campaigns : campaigns.filter((c) => c.platform === platformFilter);
+  // Global filter consumption
+  const { filterCampaigns, filterSellOut } = useGlobalFilters();
+  const filteredCampaigns = useMemo(() => filterCampaigns(campaigns), [campaigns, filterCampaigns]);
+  const filteredSellOut = useMemo(() => filterSellOut(sellOutData), [sellOutData, filterSellOut]);
+
+  // Period comparison
+  const comparison = usePeriodComparison(filteredSellOut, filteredCampaigns, periodType);
+
+  const platforms = useMemo(() => [...new Set(filteredCampaigns.map((c) => c.platform).filter(Boolean))].sort() as string[], [filteredCampaigns]);
+  // Platform filter applied on top of global filters
+  const platformFiltered = platformFilter === "all" ? filteredCampaigns : filteredCampaigns.filter((c) => c.platform === platformFilter);
   const hasData = campaigns.length > 0;
 
   // KPIs
-  const totalSpend = filtered.reduce((s, r) => s + Number(r.spend ?? 0), 0);
-  const totalImpressions = filtered.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
-  const totalClicks = filtered.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
-  const totalConversions = filtered.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
-  const totalRevenue = filtered.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const totalSpend = platformFiltered.reduce((s, r) => s + Number(r.spend ?? 0), 0);
+  const totalImpressions = platformFiltered.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
+  const totalClicks = platformFiltered.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
+  const totalConversions = platformFiltered.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
+  const totalRevenue = platformFiltered.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
   const kpis = [
-    { label: "Total Ad Spend", value: fmtZAR(totalSpend), icon: Megaphone },
-    { label: "Impressions", value: totalImpressions > 1e6 ? `${(totalImpressions / 1e6).toFixed(1)}M` : totalImpressions > 1000 ? `${(totalImpressions / 1000).toFixed(0)}K` : totalImpressions.toString(), icon: Eye },
-    { label: "Clicks", value: totalClicks.toLocaleString(), icon: MousePointerClick },
+    { label: "Total Ad Spend", value: fmtZAR(totalSpend), icon: Megaphone, delta: comparison.adSpend.deltaPct },
+    { label: "Impressions", value: totalImpressions > 1e6 ? `${(totalImpressions / 1e6).toFixed(1)}M` : totalImpressions > 1000 ? `${(totalImpressions / 1000).toFixed(0)}K` : totalImpressions.toString(), icon: Eye, delta: comparison.impressions.deltaPct },
+    { label: "Clicks", value: totalClicks.toLocaleString(), icon: MousePointerClick, delta: comparison.clicks.deltaPct },
     { label: "CTR", value: `${ctr.toFixed(2)}%`, icon: TrendingUp },
     { label: "Conversions", value: totalConversions.toLocaleString(), icon: Target },
     { label: "ROAS", value: `${roas.toFixed(1)}x`, icon: DollarSign },
@@ -61,7 +73,7 @@ const CampaignsPage = () => {
   // Performance over time (monthly)
   const timeMap = useMemo(() => {
     const m: Record<string, { spend: number; impressions: number; clicks: number; revenue: number }> = {};
-    filtered.forEach((r) => {
+    platformFiltered.forEach((r) => {
       const month = (r.flight_start ?? "").slice(0, 7);
       if (!month) return;
       if (!m[month]) m[month] = { spend: 0, impressions: 0, clicks: 0, revenue: 0 };
@@ -73,12 +85,12 @@ const CampaignsPage = () => {
     return Object.entries(m).sort(([a], [b]) => a.localeCompare(b)).map(([month, v]) => ({
       month, spend: Math.round(v.spend), impressions: v.impressions, clicks: v.clicks, revenue: Math.round(v.revenue),
     }));
-  }, [filtered]);
+  }, [platformFiltered]);
 
   // Platform breakdown
   const platformData = useMemo(() => {
     const m: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; revenue: number }> = {};
-    filtered.forEach((r) => {
+    platformFiltered.forEach((r) => {
       const p = r.platform ?? "Unknown";
       if (!m[p]) m[p] = { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 };
       m[p].spend += Number(r.spend ?? 0);
@@ -90,21 +102,21 @@ const CampaignsPage = () => {
     return Object.entries(m).sort(([, a], [, b]) => b.spend - a.spend).slice(0, 6).map(([platform, v]) => ({
       platform, spend: Math.round(v.spend), impressions: v.impressions, clicks: v.clicks, conversions: v.conversions, revenue: Math.round(v.revenue),
     }));
-  }, [filtered]);
+  }, [platformFiltered]);
 
   // Extract distinct brands from sell-out data for scoped attribution
   const sellOutBrands = useMemo(() => {
     const brands = new Set<string>();
-    for (const row of sellOutData) {
+    for (const row of filteredSellOut) {
       if (row.brand) brands.add(row.brand);
     }
     return Array.from(brands);
-  }, [sellOutData]);
+  }, [filteredSellOut]);
 
   // Campaign Attribution
   const attribution = useMemo(() => {
-    if (sellOutData.length === 0 || campaigns.length === 0) return [];
-    const flights: CampaignFlight[] = campaigns
+    if (filteredSellOut.length === 0 || filteredCampaigns.length === 0) return [];
+    const flights: CampaignFlight[] = filteredCampaigns
       .filter((c) => c.campaign_name && c.flight_start)
       .map((c) => ({
         campaign_name: c.campaign_name!,
@@ -113,13 +125,13 @@ const CampaignsPage = () => {
         flight_end: c.flight_end ?? c.flight_start!,
         spend: Number(c.spend ?? 0),
       }));
-    return computeCampaignAttribution(flights, sellOutData, sellOutBrands.length > 1 ? sellOutBrands : undefined);
-  }, [campaigns, sellOutData, sellOutBrands]);
+    return computeCampaignAttribution(flights, filteredSellOut, sellOutBrands.length > 1 ? sellOutBrands : undefined);
+  }, [filteredCampaigns, filteredSellOut, sellOutBrands]);
 
   // Flight calendar
   const flightData = useMemo(() => {
     const m: Record<string, { start: string; end: string; platform: string }> = {};
-    filtered.forEach((r) => {
+    platformFiltered.forEach((r) => {
       const name = r.campaign_name ?? "Unnamed";
       if (!m[name]) {
         m[name] = { start: r.flight_start ?? "", end: r.flight_end ?? r.flight_start ?? "", platform: r.platform ?? "" };
@@ -134,12 +146,12 @@ const CampaignsPage = () => {
       .sort(([, a], [, b]) => a.start.localeCompare(b.start))
       .slice(0, 20)
       .map(([name, v]) => ({ name, ...v }));
-  }, [filtered]);
+  }, [platformFiltered]);
 
   // Campaign-level table
   const campaignTable = useMemo(() => {
     const m: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; revenue: number; platform: string }> = {};
-    filtered.forEach((r) => {
+    platformFiltered.forEach((r) => {
       const name = r.campaign_name ?? "Unnamed";
       if (!m[name]) m[name] = { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, platform: r.platform ?? "" };
       m[name].spend += Number(r.spend ?? 0);
@@ -157,7 +169,7 @@ const CampaignsPage = () => {
       return sortAsc ? Number(av) - Number(bv) : Number(bv) - Number(av);
     });
     return arr;
-  }, [filtered, sortKey, sortAsc]);
+  }, [platformFiltered, sortKey, sortAsc]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -171,8 +183,8 @@ const CampaignsPage = () => {
   );
 
   const dataSummary = useMemo(
-    () => buildCampaignsSummary(sellOutData, filtered, filteredAttribution)?.summary ?? "",
-    [sellOutData, filtered, filteredAttribution],
+    () => buildCampaignsSummary(filteredSellOut, platformFiltered, filteredAttribution)?.summary ?? "",
+    [filteredSellOut, platformFiltered, filteredAttribution],
   );
 
   // Data context line
@@ -215,6 +227,16 @@ const CampaignsPage = () => {
         </div>
         <div className="flex items-center gap-3">
           {hasData && (
+            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
+              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="WoW">Week-on-Week</SelectItem>
+                <SelectItem value="MoM">Month-on-Month</SelectItem>
+                <SelectItem value="YoY">Year-on-Year</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {hasData && (
             <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setPage(0); }}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Platform" /></SelectTrigger>
               <SelectContent>
@@ -251,7 +273,7 @@ const CampaignsPage = () => {
             {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
               {kpis.map((kpi, i) => (
-                <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} delay={i * 0.05} colorClass="bg-chart-4/15 text-chart-4" />
+                <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} icon={kpi.icon} delay={i * 0.05} colorClass="bg-chart-4/15 text-chart-4" delta={kpi.delta} periodLabel={comparison.previousLabel} />
               ))}
             </div>
 

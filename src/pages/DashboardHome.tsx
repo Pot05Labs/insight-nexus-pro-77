@@ -23,6 +23,7 @@ import EmptyState from "@/components/EmptyState";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
+import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
 import { seedDemoData } from "@/services/demoDataSeeder";
 import { computeCampaignAttribution, type CampaignFlight, type AttributionResult } from "@/lib/attribution-utils";
 import ActivityPanel from "@/components/ActivityPanel";
@@ -59,8 +60,13 @@ const DashboardHome = () => {
   const hasData = data.length > 0;
   const hasCampaigns = campaigns.length > 0;
 
-  // Period-over-Period comparison
-  const comparison = usePeriodComparison(data, campaigns, periodType);
+  // Global filter consumption
+  const { filterSellOut, filterCampaigns } = useGlobalFilters();
+  const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
+  const filteredCampaigns = useMemo(() => filterCampaigns(campaigns), [campaigns, filterCampaigns]);
+
+  // Period-over-Period comparison (uses filtered data)
+  const comparison = usePeriodComparison(filteredData, filteredCampaigns, periodType);
 
   // Auto-refresh dashboard when sell_out_data or campaign_data_v2 changes in real time
   useRealtimeSellOut(user?.id, refetch);
@@ -80,11 +86,11 @@ const DashboardHome = () => {
     }
   };
 
-  // --- Sell-out KPIs ---
-  const totalRevenue = data.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
-  const totalUnits = data.reduce((s, r) => s + Number(r.units_sold ?? 0), 0);
+  // --- Sell-out KPIs (use globally filtered data) ---
+  const totalRevenue = filteredData.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const totalUnits = filteredData.reduce((s, r) => s + Number(r.units_sold ?? 0), 0);
   const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
-  const uniqueProducts = new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size;
+  const uniqueProducts = new Set(filteredData.map((r) => r.product_name_raw).filter(Boolean)).size;
 
   const sellOutKpis = [
     { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
@@ -93,15 +99,15 @@ const DashboardHome = () => {
     { label: "Unique Products", value: uniqueProducts.toString(), icon: Package, delta: comparison.products.deltaPct },
   ];
 
-  // --- Campaign KPIs ---
-  const totalSpend = campaigns.reduce((s, r) => s + Number(r.spend ?? 0), 0);
-  const totalImpressions = campaigns.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
-  const totalClicks = campaigns.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
+  // --- Campaign KPIs (use globally filtered campaigns) ---
+  const totalSpend = filteredCampaigns.reduce((s, r) => s + Number(r.spend ?? 0), 0);
+  const totalImpressions = filteredCampaigns.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
+  const totalClicks = filteredCampaigns.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
   // Canonical metrics from build spec
-  const totalConversions = campaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
-  const totalCampaignRevenue = campaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const totalConversions = filteredCampaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
+  const totalCampaignRevenue = filteredCampaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
   // ROAS uses campaign-attributed revenue, NOT total sell-out revenue.
   // If no campaign revenue attribution exists, roas stays 0 and displays as "—".
   const roas = totalSpend > 0 && totalCampaignRevenue > 0 ? totalCampaignRevenue / totalSpend : 0;
@@ -113,15 +119,15 @@ const DashboardHome = () => {
   // to matching brands, preventing cross-brand revenue contamination.
   const sellOutBrands = useMemo(() => {
     const brands = new Set<string>();
-    for (const row of data) {
+    for (const row of filteredData) {
       if (row.brand) brands.add(row.brand);
     }
     return Array.from(brands);
-  }, [data]);
+  }, [filteredData]);
 
   const attributionResults = useMemo<AttributionResult[]>(() => {
-    if (!hasCampaigns || data.length === 0) return [];
-    const flights: CampaignFlight[] = campaigns
+    if (!hasCampaigns || filteredData.length === 0) return [];
+    const flights: CampaignFlight[] = filteredCampaigns
       .filter((c) => c.campaign_name && c.flight_start)
       .map((c) => ({
         campaign_name: c.campaign_name!,
@@ -133,8 +139,8 @@ const DashboardHome = () => {
     // Pass brands to scope attribution — if only one brand exists, all
     // revenue is already that brand so filtering is a no-op. With multiple
     // brands, the attribution function filters sell-out to matching brands.
-    return computeCampaignAttribution(flights, data, sellOutBrands.length > 1 ? sellOutBrands : undefined);
-  }, [campaigns, data, hasCampaigns, sellOutBrands]);
+    return computeCampaignAttribution(flights, filteredData, sellOutBrands.length > 1 ? sellOutBrands : undefined);
+  }, [filteredCampaigns, filteredData, hasCampaigns, sellOutBrands]);
 
   const totalIncrementalRevenue = attributionResults.reduce((s, r) => s + r.incrementalRevenue, 0);
   const iROAS = totalSpend > 0 ? totalIncrementalRevenue / totalSpend : 0;
@@ -149,34 +155,34 @@ const DashboardHome = () => {
   ];
 
   // Top products by brand — fallback: extract brand from product_name_raw if brand field is null
-  const inferBrand = (r: typeof data[0]): string => {
+  const inferBrand = (r: typeof filteredData[0]): string => {
     if (r.brand) return r.brand;
     const name = r.product_name_raw?.trim();
     if (!name) return r.retailer ?? "Unknown";
     const firstWord = name.split(/\s+/)[0];
     return firstWord && firstWord.length > 1 ? firstWord : "Unknown";
   };
-  const revByBrand = aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0));
+  const revByBrand = aggregate(filteredData, inferBrand, (r) => Number(r.revenue ?? 0));
   const brandDataRaw = Object.entries(revByBrand)
     .sort(([, a], [, b]) => b - a)
     .map(([brand, revenue]) => ({ brand, revenue: Math.round(revenue) }));
   const brandData = topNWithOther(brandDataRaw, 6, "revenue", "brand");
 
   // Category analysis
-  const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
+  const revByCategory = aggregate(filteredData, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
   const categoryDataRaw = Object.entries(revByCategory)
     .sort(([, a], [, b]) => b - a)
     .map(([category, revenue]) => ({ category, revenue: Math.round(revenue) }));
   const categoryData = topNWithOther(categoryDataRaw, 6, "revenue", "category");
 
-  // Revenue + Spend time series (monthly)
+  // Revenue + Spend time series (monthly, uses filtered data)
   const monthMapRevenue: Record<string, number> = {};
-  data.forEach((r) => {
+  filteredData.forEach((r) => {
     const m = (r.date ?? "").slice(0, 7);
     if (m) monthMapRevenue[m] = (monthMapRevenue[m] ?? 0) + Number(r.revenue ?? 0);
   });
   const monthMapSpend: Record<string, number> = {};
-  campaigns.forEach((r) => {
+  filteredCampaigns.forEach((r) => {
     const m = (r.flight_start ?? "").slice(0, 7);
     if (m) monthMapSpend[m] = (monthMapSpend[m] ?? 0) + Number(r.spend ?? 0);
   });
@@ -209,7 +215,7 @@ const DashboardHome = () => {
     const findings: KeyFinding[] = [];
 
     // (a) Top retailer by revenue share
-    const revByRetailer = aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
+    const revByRetailer = aggregate(filteredData, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
     const sortedRetailers = Object.entries(revByRetailer).sort(([, a], [, b]) => b - a);
     if (sortedRetailers.length > 0 && totalRevenue > 0) {
       const [topRetailer, topRetailerRev] = sortedRetailers[0];
@@ -285,7 +291,7 @@ const DashboardHome = () => {
       if (revenueMonths.length >= 2) {
         const currentMonth = revenueMonths[revenueMonths.length - 1][0];
         const previousMonth = revenueMonths[revenueMonths.length - 2][0];
-        for (const r of data) {
+        for (const r of filteredData) {
           const m = (r.date ?? "").slice(0, 7);
           const retailer = r.retailer ?? "Unknown";
           const rev = Number(r.revenue ?? 0);
@@ -333,12 +339,12 @@ const DashboardHome = () => {
     }
 
     return findings.slice(0, 5);
-  }, [data, hasData, totalRevenue, categoryDataRaw, monthMapRevenue]);
+  }, [filteredData, hasData, totalRevenue, categoryDataRaw, monthMapRevenue]);
 
   // ── PPTX Export Data ──
   const pptxData = useMemo(() => {
     // Retailer breakdown (computed here to avoid depending on keyFindings internals)
-    const revByRetailer = aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
+    const revByRetailer = aggregate(filteredData, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
     const retailerBreakdown = Object.entries(revByRetailer)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 10)
@@ -357,7 +363,7 @@ const DashboardHome = () => {
     }));
 
     // Date range subtitle
-    const dates = data.map((r) => r.date).filter(Boolean) as string[];
+    const dates = filteredData.map((r) => r.date).filter(Boolean) as string[];
     dates.sort();
     let subtitle: string | undefined;
     if (dates.length > 0) {
@@ -387,7 +393,7 @@ const DashboardHome = () => {
       findings: keyFindings.length > 0 ? keyFindings.map((f) => f.text) : undefined,
     };
   }, [
-    data, totalRevenue, totalUnits, avgOrderValue, uniqueProducts,
+    filteredData, totalRevenue, totalUnits, avgOrderValue, uniqueProducts,
     hasCampaigns, totalSpend, roas, attributionResults, keyFindings,
   ]);
 
@@ -424,14 +430,14 @@ const DashboardHome = () => {
   const dataSummary = useMemo(() => {
     return (
       buildDashboardSummary({
-        sellOutData: data,
-        campaignData: campaigns,
+        sellOutData: filteredData,
+        campaignData: filteredCampaigns,
         periodType,
         comparison,
         attributionResults,
       })?.summary ?? ""
     );
-  }, [data, campaigns, periodType, comparison, attributionResults]);
+  }, [filteredData, filteredCampaigns, periodType, comparison, attributionResults]);
 
   const isLoading = loading || campaignLoading;
 
@@ -651,7 +657,7 @@ const DashboardHome = () => {
             )}
 
             {/* ── 6b. SHARE OF VOICE ── */}
-            {hasData && <ShareOfVoicePanel data={data} />}
+            {hasData && <ShareOfVoicePanel data={filteredData} />}
 
             {/* ── 7. CAMPAIGN SECTION (visually separated) ── */}
             {(hasCampaigns || campaignLoading) && (
@@ -770,13 +776,13 @@ const DashboardHome = () => {
             )}
 
             {/* ── 8. ANOMALY DETECTION ── */}
-            {hasData && <AnomalyDetectionPanel data={data} />}
+            {hasData && <AnomalyDetectionPanel data={filteredData} />}
 
             {/* ── 9. DATA QUALITY SCORE ── */}
             <div className="mt-6">
               <DataQualityPanel
-                sellOutData={data as unknown as Record<string, unknown>[]}
-                campaignData={campaigns as unknown as Record<string, unknown>[]}
+                sellOutData={filteredData as unknown as Record<string, unknown>[]}
+                campaignData={filteredCampaigns as unknown as Record<string, unknown>[]}
               />
             </div>
 

@@ -1,42 +1,77 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown, Lightbulb } from "lucide-react";
+import { ArrowUpDown, Lightbulb, DollarSign, ShoppingCart, Tag, Package, ChevronLeft, ChevronRight } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import KpiCard from "@/components/KpiCard";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useCampaignData } from "@/hooks/useCampaignData";
+import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
+import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { buildProductsSummary } from "@/services/insightsSnapshot";
 
 type SortKey = "product" | "brand" | "category" | "revenue" | "units" | "avgPrice" | "marketShare";
 
+const PAGE_SIZE = 25;
+
 const ProductsPage = () => {
-  const { data, loading } = useSellOutData();
+  const { data: rawData, loading } = useSellOutData();
+  const { data: campaigns } = useCampaignData();
+  const { filterSellOut } = useGlobalFilters();
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
+  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const [page, setPage] = useState(0);
+
+  // Apply global filters
+  const data = useMemo(() => filterSellOut(rawData), [rawData, filterSellOut]);
+
+  // Period-over-period comparison
+  const comparison = usePeriodComparison(data, campaigns, periodType);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(false); }
+    setPage(0);
   };
 
+  // --- KPI values ---
+  const totalRevenue = useMemo(() => data.reduce((s, r) => s + Number(r.revenue ?? 0), 0), [data]);
+  const totalUnits = useMemo(() => data.reduce((s, r) => s + Number(r.units_sold ?? 0), 0), [data]);
+  const avgOrderValue = useMemo(() => totalUnits > 0 ? totalRevenue / totalUnits : 0, [totalRevenue, totalUnits]);
+  const uniqueProductCount = useMemo(() => new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size, [data]);
+
+  const kpiCards = useMemo(() => [
+    { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
+    { label: "Units Sold", value: totalUnits.toLocaleString(), icon: ShoppingCart, delta: comparison.units.deltaPct },
+    { label: "Avg Order Value", value: fmtZAR(avgOrderValue), icon: Tag, delta: comparison.aov.deltaPct },
+    { label: "Unique Products", value: uniqueProductCount.toString(), icon: Package, delta: comparison.products.deltaPct },
+  ], [totalRevenue, totalUnits, avgOrderValue, uniqueProductCount, comparison]);
+
   // Top 10 products by revenue
-  const revByProduct = aggregate(data, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const top10 = Object.entries(revByProduct).sort(([, a], [, b]) => b - a).slice(0, 10)
-    .map(([name, revenue]) => ({ name, revenue: Math.round(revenue) }));
+  const revByProduct = useMemo(() => aggregate(data, (r) => r.product_name_raw ?? "Unknown", (r) => Number(r.revenue ?? 0)), [data]);
+  const top10 = useMemo(() =>
+    Object.entries(revByProduct).sort(([, a], [, b]) => b - a).slice(0, 10)
+      .map(([name, revenue]) => ({ name, revenue: Math.round(revenue) })),
+    [revByProduct]
+  );
 
   // Category donut
-  const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const categoryData = topNWithOther(
+  const revByCategory = useMemo(() => aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0)), [data]);
+  const categoryData = useMemo(() => topNWithOther(
     Object.entries(revByCategory).sort(([, a], [, b]) => b - a)
       .map(([name, value]) => ({ name, value: Math.round(value) })),
     5, "value", "name"
-  );
+  ), [revByCategory]);
 
   // Brand inference: extract from product name if brand field is null
   const inferBrand = (r: typeof data[0]): string => {
@@ -48,8 +83,7 @@ const ProductsPage = () => {
   };
 
   // Brand rankings with market share
-  const revByBrand = aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0));
-  const totalRevenue = Object.values(revByBrand).reduce((s, v) => s + v, 0);
+  const revByBrand = useMemo(() => aggregate(data, inferBrand, (r) => Number(r.revenue ?? 0)), [data]);
 
   const brandRankings = useMemo(() => {
     const arr = Object.entries(revByBrand).map(([brand, revenue]) => ({
@@ -61,11 +95,14 @@ const ProductsPage = () => {
     return arr;
   }, [revByBrand, totalRevenue]);
 
-  // Brand chart data (top 10)
-  const brandChartData = brandRankings.slice(0, 8).map((b) => ({
-    brand: b.brand,
-    revenue: Math.round(b.revenue),
-  }));
+  // Brand chart data (top 8)
+  const brandChartData = useMemo(() =>
+    brandRankings.slice(0, 8).map((b) => ({
+      brand: b.brand,
+      revenue: Math.round(b.revenue),
+    })),
+    [brandRankings]
+  );
 
   // Full product table with market share
   const productTable = useMemo(() => {
@@ -73,7 +110,7 @@ const ProductsPage = () => {
     const map: Record<string, { brand: string; category: string; revenue: number; units: number }> = {};
     data.forEach((r) => {
       const p = r.product_name_raw ?? "Unknown";
-      if (!map[p]) map[p] = { brand: inferBrand(r), category: r.category ?? "—", revenue: 0, units: 0 };
+      if (!map[p]) map[p] = { brand: inferBrand(r), category: r.category ?? "\u2014", revenue: 0, units: 0 };
       map[p].revenue += Number(r.revenue ?? 0);
       map[p].units += Number(r.units_sold ?? 0);
     });
@@ -127,28 +164,63 @@ const ProductsPage = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Products</h1>
-        <p className="text-muted-foreground text-sm">Product and brand performance — market share and mental availability analysis.</p>
-        {hasData && dateRange && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {uniqueProducts.toLocaleString()} products &middot; {uniqueBrands.toLocaleString()} brands &middot; {dateRange}
-          </p>
-        )}
+      {/* Header with period selector */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Products</h1>
+          <p className="text-muted-foreground text-sm">Product and brand performance — market share and mental availability analysis.</p>
+          {hasData && dateRange && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {uniqueProducts.toLocaleString()} products &middot; {uniqueBrands.toLocaleString()} brands &middot; {dateRange}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-1">
+            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
+              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="WoW">Week-on-Week</SelectItem>
+                <SelectItem value="MoM">Month-on-Month</SelectItem>
+                <SelectItem value="YoY">Year-on-Year</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasData && comparison.currentLabel && comparison.previousLabel && (
+              <span className="text-xs text-muted-foreground">
+                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
+              </span>
+            )}
+          </div>
+          <ExportCsvButton
+            filename="Products"
+            headers={["Product", "Brand", "Category", "Revenue", "Units", "Avg Price", "Market Share %"]}
+            rows={productTable.map((p) => [p.product, p.brand, p.category, p.revenue, p.units, p.avgPrice.toFixed(2), p.marketShare.toFixed(1)])}
+          />
+        </div>
       </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpiCards.map((kpi, i) => (
+          <KpiCard
+            key={kpi.label}
+            label={kpi.label}
+            value={kpi.value}
+            icon={kpi.icon}
+            loading={loading}
+            delay={i * 0.06}
+            delta={kpi.delta}
+            periodLabel={comparison.previousLabel}
+          />
+        ))}
+      </div>
+
       {keyFinding && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/5 border border-accent/20 text-sm">
           <Lightbulb className="h-4 w-4 text-accent shrink-0" />
           <span className="text-foreground/80">{keyFinding}</span>
         </div>
       )}
-      <div className="flex items-center gap-3">
-        <ExportCsvButton
-          filename="Products"
-          headers={["Product", "Brand", "Category", "Revenue", "Units", "Avg Price", "Market Share %"]}
-          rows={productTable.map((p) => [p.product, p.brand, p.category, p.revenue, p.units, p.avgPrice.toFixed(2), p.marketShare.toFixed(1)])}
-        />
-      </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Top 10 Products */}
@@ -240,7 +312,7 @@ const ProductsPage = () => {
         </Card>
       )}
 
-      {/* Product Performance Table */}
+      {/* Product Performance Table with Pagination */}
       <Card>
         <CardHeader><CardTitle className="font-display text-base">Product Performance</CardTitle></CardHeader>
         <CardContent>
@@ -258,7 +330,7 @@ const ProductsPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {productTable.map((r, i) => (
+                {productTable.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((r, i) => (
                   <TableRow key={i}>
                     <TableCell className="text-sm font-medium max-w-[200px] truncate">{r.product}</TableCell>
                     <TableCell className="text-sm">{r.brand}</TableCell>
@@ -272,6 +344,21 @@ const ProductsPage = () => {
               </TableBody>
             </Table>
           </div>
+          {productTable.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <span className="text-xs text-muted-foreground">
+                Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, productTable.length)} of {productTable.length}
+              </span>
+              <div className="flex gap-1">
+                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= productTable.length} onClick={() => setPage(p => p + 1)}>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

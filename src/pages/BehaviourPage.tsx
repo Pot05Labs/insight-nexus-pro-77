@@ -2,10 +2,15 @@ import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Loader2, Lightbulb, Users, TrendingUp } from "lucide-react";
+import { Sparkles, Loader2, Lightbulb, Users, TrendingUp, DollarSign, ShoppingCart, Tag } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import KpiCard from "@/components/KpiCard";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useCampaignData } from "@/hooks/useCampaignData";
+import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
+import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
@@ -73,15 +78,25 @@ function parseSegmentBlocks(text: string): Segment[] {
 
 const BehaviourPage = () => {
   const { data, loading } = useSellOutData();
+  const { data: campaigns } = useCampaignData();
+  const { filterSellOut } = useGlobalFilters();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [segLoading, setSegLoading] = useState(false);
-  const hasData = data.length > 0;
+  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+
+  // Apply global filters
+  const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
+
+  // Period-over-period comparison
+  const comparison = usePeriodComparison(filteredData, campaigns, periodType);
+
+  const hasData = filteredData.length > 0;
 
   // ── Memoised computations (avoid re-processing 10K+ rows on every render) ──
 
   const dayData = useMemo(() => {
     const dayMap: Record<string, number> = {};
-    for (const r of data) {
+    for (const r of filteredData) {
       if (!r.date) continue;
       const d = new Date(r.date);
       if (isNaN(d.getTime())) continue;
@@ -89,24 +104,24 @@ const BehaviourPage = () => {
       dayMap[day] = (dayMap[day] ?? 0) + Number(r.revenue ?? 0);
     }
     return DAYS.map((day) => ({ day, revenue: Math.round(dayMap[day] ?? 0) }));
-  }, [data]);
+  }, [filteredData]);
 
   const compData = useMemo(() => {
-    const revByCategory = aggregate(data, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
+    const revByCategory = aggregate(filteredData, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
     const sorted = Object.entries(revByCategory)
       .sort(([, a], [, b]) => b - a)
       .map(([name, value]) => ({ name, value: Math.round(value) }));
     return topNWithOther(sorted, 5, "value", "name");
-  }, [data]);
+  }, [filteredData]);
 
   const dateRange = useMemo(() => {
-    const dates = data.map((r) => r.date).filter(Boolean).sort();
+    const dates = filteredData.map((r) => r.date).filter(Boolean).sort();
     if (dates.length === 0) return "";
     const fmt = (d: string) => new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
     const first = fmt(dates[0]!);
     const last = fmt(dates[dates.length - 1]!);
     return first === last ? first : `${first} \u2013 ${last}`;
-  }, [data]);
+  }, [filteredData]);
 
   const keyFinding = useMemo(() => {
     const totalTransactions = dayData.reduce((s, d) => s + d.revenue, 0);
@@ -118,14 +133,28 @@ const BehaviourPage = () => {
     return `Peak trading day: ${dayName} generates ${pct}% of revenue`;
   }, [dayData]);
 
-  const dataSummary = useMemo(() => buildBehaviourSummary(data)?.summary ?? "", [data]);
+  // ── KPI values ──
+  const totalRevenue = useMemo(
+    () => filteredData.reduce((s, r) => s + Number(r.revenue ?? 0), 0),
+    [filteredData],
+  );
+  const totalUnits = useMemo(
+    () => filteredData.reduce((s, r) => s + Number(r.units_sold ?? 0), 0),
+    [filteredData],
+  );
+  const avgOrderValue = useMemo(
+    () => (totalUnits > 0 ? totalRevenue / totalUnits : 0),
+    [totalRevenue, totalUnits],
+  );
+
+  const dataSummary = useMemo(() => buildBehaviourSummary(filteredData)?.summary ?? "", [filteredData]);
 
   // ── AI Segment generation ──
 
   const generateSegments = async () => {
     setSegLoading(true);
     setSegments([]);
-    const summary = `Day of week sales: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Categories: ${compData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${data.length}.`;
+    const summary = `Day of week sales: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Categories: ${compData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${filteredData.length}.`;
     let full = "";
     await streamAiChat({
       messages: [{
@@ -151,7 +180,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
   // ── Render ──
 
   if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
+  if (data.length === 0) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -164,17 +193,59 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           </p>
           {dateRange && (
             <p className="text-sm text-muted-foreground mt-1">
-              {data.length.toLocaleString()} transactions &middot; {dateRange}
+              {filteredData.length.toLocaleString()} transactions &middot; {dateRange}
             </p>
           )}
         </div>
-        <ExportCsvButton
-          filename="Behaviour"
-          headers={["Metric", "Dimension", "Revenue"]}
-          rows={[
-            ...dayData.map((d) => ["Day of Week", d.day, d.revenue]),
-            ...compData.map((c) => ["Category", c.name, c.value]),
-          ]}
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-1">
+            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
+              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="WoW">Week-on-Week</SelectItem>
+                <SelectItem value="MoM">Month-on-Month</SelectItem>
+                <SelectItem value="YoY">Year-on-Year</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasData && comparison.currentLabel && comparison.previousLabel && (
+              <span className="text-xs text-muted-foreground">
+                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
+              </span>
+            )}
+          </div>
+          <ExportCsvButton
+            filename="Behaviour"
+            headers={["Metric", "Dimension", "Revenue"]}
+            rows={[
+              ...dayData.map((d) => ["Day of Week", d.day, d.revenue]),
+              ...compData.map((c) => ["Category", c.name, c.value]),
+            ]}
+          />
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <KpiCard
+          label="Total Revenue"
+          value={fmtZAR(totalRevenue)}
+          icon={DollarSign}
+          delta={comparison.revenue.deltaPct}
+          periodLabel={comparison.previousLabel}
+        />
+        <KpiCard
+          label="Units Sold"
+          value={totalUnits.toLocaleString()}
+          icon={ShoppingCart}
+          delta={comparison.units.deltaPct}
+          periodLabel={comparison.previousLabel}
+        />
+        <KpiCard
+          label="Avg Order Value"
+          value={fmtZAR(avgOrderValue)}
+          icon={Tag}
+          delta={comparison.aov.deltaPct}
+          periodLabel={comparison.previousLabel}
         />
       </div>
 

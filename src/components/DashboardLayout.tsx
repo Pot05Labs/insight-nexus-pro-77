@@ -25,6 +25,7 @@ import { useRealtimeCounts } from "@/hooks/useRealtimeCounts";
 import { usePresence, type PresenceUser } from "@/hooks/usePresence";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import NotificationBell from "@/components/NotificationBell";
+import GlobalFilterBar from "@/components/GlobalFilterBar";
 
 const navItems = [
   { to: "/upload", icon: Upload, label: "Upload Hub", badgeKey: "pendingUploads" as const },
@@ -201,6 +202,7 @@ const DashboardLayout = () => {
           </span>
           <NotificationBell />
         </header>
+        <GlobalFilterBar />
         <main className="flex-1 overflow-y-auto bg-background">
           <Outlet />
         </main>

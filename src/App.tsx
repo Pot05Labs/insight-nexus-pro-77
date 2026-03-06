@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
+import { GlobalFilterProvider } from "@/contexts/GlobalFilterContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
@@ -59,8 +60,8 @@ const App = () => (
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
 
-            {/* Protected routes */}
-            <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+            {/* Protected routes — wrapped in GlobalFilterProvider for cross-page filters */}
+            <Route element={<ProtectedRoute><GlobalFilterProvider><DashboardLayout /></GlobalFilterProvider></ProtectedRoute>}>
               <Route path="/upload" element={<UploadPage />} />
               <Route path="/preview" element={<PreviewPage />} />
               <Route path="/dashboard" element={<SubscriptionPaywall><DashboardHome /></SubscriptionPaywall>} />
