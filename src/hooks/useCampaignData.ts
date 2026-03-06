@@ -70,7 +70,7 @@ export function useCampaignData() {
   const { data = [], isLoading } = useQuery({
     queryKey: ["campaign-data"],
     queryFn: fetchCampaignData,
-    staleTime: 30_000,
+    staleTime: 5_000,             // 5s — ensures fresh data when navigating between pages after uploads
     refetchOnWindowFocus: false,
   });
 

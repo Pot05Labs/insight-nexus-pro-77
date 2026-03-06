@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,7 +8,6 @@ import { ArrowUpDown, Lightbulb, DollarSign, ShoppingCart, Tag, Package, Chevron
 import EmptyState from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import SignalStackInsights from "@/components/SignalStackInsights";
-import ExportCsvButton from "@/components/ExportCsvButton";
 import KpiCard from "@/components/KpiCard";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
@@ -29,7 +27,7 @@ const ProductsPage = () => {
   const { filterSellOut } = useGlobalFilters();
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
-  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const periodType: PeriodType = "MoM";
   const [page, setPage] = useState(0);
 
   // Apply global filters
@@ -174,28 +172,6 @@ const ProductsPage = () => {
               {uniqueProducts.toLocaleString()} products &middot; {uniqueBrands.toLocaleString()} brands &middot; {dateRange}
             </p>
           )}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end gap-1">
-            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
-              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="WoW">Week-on-Week</SelectItem>
-                <SelectItem value="MoM">Month-on-Month</SelectItem>
-                <SelectItem value="YoY">Year-on-Year</SelectItem>
-              </SelectContent>
-            </Select>
-            {hasData && comparison.currentLabel && comparison.previousLabel && (
-              <span className="text-xs text-muted-foreground">
-                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
-              </span>
-            )}
-          </div>
-          <ExportCsvButton
-            filename="Products"
-            headers={["Product", "Brand", "Category", "Revenue", "Units", "Avg Price", "Market Share %"]}
-            rows={productTable.map((p) => [p.product, p.brand, p.category, p.revenue, p.units, p.avgPrice.toFixed(2), p.marketShare.toFixed(1)])}
-          />
         </div>
       </div>
 

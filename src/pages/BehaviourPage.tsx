@@ -1,9 +1,8 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkles, Loader2, Lightbulb, Users, TrendingUp, DollarSign, ShoppingCart, Tag } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import KpiCard from "@/components/KpiCard";
@@ -11,7 +10,6 @@ import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
 import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
-import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
@@ -82,7 +80,7 @@ const BehaviourPage = () => {
   const { filterSellOut } = useGlobalFilters();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [segLoading, setSegLoading] = useState(false);
-  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const periodType: PeriodType = "MoM";
 
   // Apply global filters
   const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
@@ -196,31 +194,6 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
               {filteredData.length.toLocaleString()} transactions &middot; {dateRange}
             </p>
           )}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end gap-1">
-            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
-              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="WoW">Week-on-Week</SelectItem>
-                <SelectItem value="MoM">Month-on-Month</SelectItem>
-                <SelectItem value="YoY">Year-on-Year</SelectItem>
-              </SelectContent>
-            </Select>
-            {hasData && comparison.currentLabel && comparison.previousLabel && (
-              <span className="text-xs text-muted-foreground">
-                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
-              </span>
-            )}
-          </div>
-          <ExportCsvButton
-            filename="Behaviour"
-            headers={["Metric", "Dimension", "Revenue"]}
-            rows={[
-              ...dayData.map((d) => ["Day of Week", d.day, d.revenue]),
-              ...compData.map((c) => ["Category", c.name, c.value]),
-            ]}
-          />
         </div>
       </div>
 

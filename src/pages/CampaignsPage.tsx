@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,8 +11,6 @@ import {
 } from "recharts";
 import { Megaphone, DollarSign, MousePointerClick, Eye, TrendingUp, Target, ArrowUpDown, Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import ExportPdfButton from "@/components/ExportPdfButton";
-import ExportCsvButton from "@/components/ExportCsvButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import KpiCard from "@/components/KpiCard";
@@ -34,9 +32,8 @@ const CampaignsPage = () => {
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
-  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const periodType: PeriodType = "MoM";
   const PAGE_SIZE = 25;
-  const reportRef = useRef<HTMLDivElement>(null);
   const { data: sellOutData } = useSellOutData();
 
   // Global filter consumption
@@ -227,16 +224,6 @@ const CampaignsPage = () => {
         </div>
         <div className="flex items-center gap-3">
           {hasData && (
-            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
-              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="WoW">Week-on-Week</SelectItem>
-                <SelectItem value="MoM">Month-on-Month</SelectItem>
-                <SelectItem value="YoY">Year-on-Year</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {hasData && (
             <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setPage(0); }}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Platform" /></SelectTrigger>
               <SelectContent>
@@ -245,12 +232,6 @@ const CampaignsPage = () => {
               </SelectContent>
             </Select>
           )}
-          <ExportCsvButton
-            filename="Campaigns"
-            headers={["Campaign", "Platform", "Spend", "Impressions", "Clicks", "Conversions", "Revenue", "ROAS"]}
-            rows={campaignTable.map((c) => [c.campaign_name, c.platform, c.spend, c.impressions, c.clicks, c.conversions, c.revenue, c.roas.toFixed(1)])}
-          />
-          <ExportPdfButton targetRef={reportRef} filename="SignalStack-Campaigns" />
         </div>
       </div>
 
@@ -261,7 +242,7 @@ const CampaignsPage = () => {
         </div>
       )}
 
-      <div ref={reportRef}>
+      <div>
         {loading ? (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
             {[1, 2, 3, 4, 5, 6].map((i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}

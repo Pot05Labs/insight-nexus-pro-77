@@ -1,7 +1,6 @@
-import { useRef, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useRealtimeSellOut } from "@/hooks/useRealtimeSellOut";
 import { useRealtimeCampaign } from "@/hooks/useRealtimeCampaign";
@@ -13,9 +12,6 @@ import {
   AlertTriangle, Rocket,
 } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from "recharts";
-import ExportPdfButton from "@/components/ExportPdfButton";
-import ExportCsvButton from "@/components/ExportCsvButton";
-import ExportPptxButton from "@/components/ExportPptxButton";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import KpiCard from "@/components/KpiCard";
@@ -30,7 +26,6 @@ import ActivityPanel from "@/components/ActivityPanel";
 import AnomalyDetectionPanel from "@/components/AnomalyDetectionPanel";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, LINE_COLORS, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
-import DataQualityPanel from "@/components/DataQualityPanel";
 import ShareOfVoicePanel from "@/components/ShareOfVoicePanel";
 import { useToast } from "@/hooks/use-toast";
 import { buildDashboardSummary } from "@/services/insightsSnapshot";
@@ -50,12 +45,11 @@ function formatMonthLabel(yyyyMm: string): string {
 }
 
 const DashboardHome = () => {
-  const reportRef = useRef<HTMLDivElement>(null);
   const { data, loading, refetch } = useSellOutData();
   const { data: campaigns, loading: campaignLoading, refetch: refetchCampaigns } = useCampaignData();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const periodType: PeriodType = "MoM";
   const [demoLoading, setDemoLoading] = useState(false);
   const hasData = data.length > 0;
   const hasCampaigns = campaigns.length > 0;
@@ -342,61 +336,6 @@ const DashboardHome = () => {
   }, [filteredData, hasData, totalRevenue, categoryDataRaw, monthMapRevenue]);
 
   // ── PPTX Export Data ──
-  const pptxData = useMemo(() => {
-    // Retailer breakdown (computed here to avoid depending on keyFindings internals)
-    const revByRetailer = aggregate(filteredData, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
-    const retailerBreakdown = Object.entries(revByRetailer)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([name, rev]) => ({
-        name,
-        value: fmtZAR(rev),
-        percentage: totalRevenue > 0 ? `${((rev / totalRevenue) * 100).toFixed(1)}%` : undefined,
-      }));
-
-    // Campaign table from attribution results
-    const campaignTable = attributionResults.slice(0, 10).map((r) => ({
-      name: r.campaign_name,
-      spend: fmtZAR(r.spend),
-      revenue: fmtZAR(r.flightRevenue),
-      roas: r.incrementalROAS > 0 ? `${r.incrementalROAS.toFixed(1)}x` : "\u2014",
-    }));
-
-    // Date range subtitle
-    const dates = filteredData.map((r) => r.date).filter(Boolean) as string[];
-    dates.sort();
-    let subtitle: string | undefined;
-    if (dates.length > 0) {
-      const minLabel = formatMonthLabel(dates[0].slice(0, 7));
-      const maxLabel = formatMonthLabel(dates[dates.length - 1].slice(0, 7));
-      subtitle = minLabel === maxLabel ? minLabel : `${minLabel} \u2013 ${maxLabel}`;
-    }
-
-    return {
-      title: "Dashboard Report",
-      subtitle,
-      kpis: [
-        { label: "Total Revenue", value: fmtZAR(totalRevenue) },
-        { label: "Units Sold", value: totalUnits.toLocaleString() },
-        { label: "Avg Order Value", value: fmtZAR(avgOrderValue) },
-        { label: "Unique Products", value: uniqueProducts.toString() },
-        ...(hasCampaigns
-          ? [
-              { label: "Total Ad Spend", value: fmtZAR(totalSpend) },
-              { label: "ROAS", value: roas > 0 ? `${roas.toFixed(1)}x` : "\u2014" },
-            ]
-          : []),
-      ],
-      breakdownTitle: "Revenue by Retailer",
-      breakdown: retailerBreakdown.length > 0 ? retailerBreakdown : undefined,
-      campaignTable: campaignTable.length > 0 ? campaignTable : undefined,
-      findings: keyFindings.length > 0 ? keyFindings.map((f) => f.text) : undefined,
-    };
-  }, [
-    filteredData, totalRevenue, totalUnits, avgOrderValue, uniqueProducts,
-    hasCampaigns, totalSpend, roas, attributionResults, keyFindings,
-  ]);
-
   // ── Chart Insight Annotations ──
   const revenueSpendAnnotation = useMemo(() => {
     if (totalSpend > 0 && roas > 0) {
@@ -466,47 +405,9 @@ const DashboardHome = () => {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end gap-1">
-            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
-              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="WoW">Week-on-Week</SelectItem>
-                <SelectItem value="MoM">Month-on-Month</SelectItem>
-                <SelectItem value="YoY">Year-on-Year</SelectItem>
-              </SelectContent>
-            </Select>
-            {/* ── 2. PERIOD COMPARISON CONTEXT ── */}
-            {hasData && comparison.currentLabel && comparison.previousLabel && (
-              <span className="text-xs text-muted-foreground">
-                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
-              </span>
-            )}
-          </div>
-          <ExportCsvButton
-            filename="Dashboard"
-            headers={["Metric", "Value"]}
-            rows={[
-              ["Total Revenue", totalRevenue],
-              ["Units Sold", totalUnits],
-              ["Avg Order Value", avgOrderValue],
-              ["Unique Products", uniqueProducts],
-              ["Total Ad Spend", totalSpend],
-              ["Impressions", totalImpressions],
-              ["Clicks", totalClicks],
-              ["CTR %", ctr],
-              ["ROAS", roas],
-              ["iROAS", iROAS],
-              ["eCPM", eCPM],
-              ["Cost per Sale", cps],
-            ]}
-          />
-          <ExportPptxButton filename="Dashboard" data={pptxData} />
-          <ExportPdfButton targetRef={reportRef} filename="SignalStack-Dashboard" />
-        </div>
       </div>
 
-      <div ref={reportRef}>
+      <div>
         {/* ── 2. SELL-OUT KPI CARDS (with period labels) ── */}
         {(hasData || isLoading) && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -778,15 +679,7 @@ const DashboardHome = () => {
             {/* ── 8. ANOMALY DETECTION ── */}
             {hasData && <AnomalyDetectionPanel data={filteredData} />}
 
-            {/* ── 9. DATA QUALITY SCORE ── */}
-            <div className="mt-6">
-              <DataQualityPanel
-                sellOutData={filteredData as unknown as Record<string, unknown>[]}
-                campaignData={filteredCampaigns as unknown as Record<string, unknown>[]}
-              />
-            </div>
-
-            {/* ── 10. AI STRATEGIC INSIGHTS (button-triggered) ── */}
+            {/* ── 9. AI STRATEGIC INSIGHTS (button-triggered) ── */}
             <SignalStackInsights dataSummary={dataSummary} title="Strategic Insights" />
 
             {/* ── 11. ACTIVITY PANEL ── */}

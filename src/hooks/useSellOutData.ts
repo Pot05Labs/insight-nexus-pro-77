@@ -78,8 +78,8 @@ export function useSellOutData() {
   const { data = [], isLoading } = useQuery({
     queryKey: ["sell-out-data"],
     queryFn: fetchSellOutData,
-    staleTime: 120_000,         // Don't refetch within 2min of a successful fetch
-    refetchOnWindowFocus: false, // Avoid redundant refetches when switching tabs
+    staleTime: 5_000,            // 5s — ensures fresh data when navigating between pages after uploads
+    refetchOnWindowFocus: false,  // Avoid redundant refetches when switching tabs
   });
 
   const refetch = () => queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });

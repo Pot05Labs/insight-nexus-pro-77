@@ -4,10 +4,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lightbulb, Loader2, Wrench, DollarSign, ShoppingCart, MapPin } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import EmptyState from "@/components/EmptyState";
-import ExportCsvButton from "@/components/ExportCsvButton";
 import KpiCard from "@/components/KpiCard";
 import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
@@ -28,7 +26,7 @@ const GeographyPage = () => {
   const { filterSellOut } = useGlobalFilters();
   const { toast } = useToast();
   const [repairing, setRepairing] = useState(false);
-  const [periodType, setPeriodType] = useState<PeriodType>("MoM");
+  const periodType: PeriodType = "MoM";
 
   // Apply global filters
   const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
@@ -189,32 +187,6 @@ const GeographyPage = () => {
               {uniqueStores.toLocaleString()} stores &middot; {dateRange}
             </p>
           )}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end gap-1">
-            <Select value={periodType} onValueChange={(v) => setPeriodType(v as PeriodType)}>
-              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="WoW">Week-on-Week</SelectItem>
-                <SelectItem value="MoM">Month-on-Month</SelectItem>
-                <SelectItem value="YoY">Year-on-Year</SelectItem>
-              </SelectContent>
-            </Select>
-            {hasData && comparison.currentLabel && comparison.previousLabel && (
-              <span className="text-xs text-muted-foreground">
-                Comparing: {comparison.currentLabel} vs {comparison.previousLabel}
-              </span>
-            )}
-          </div>
-          <Button variant="outline" onClick={handleRepairProvinceMapping} disabled={repairing}>
-            {repairing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Wrench className="h-4 w-4 mr-1.5" />}
-            {repairing ? "Repairing..." : "Repair Province Mapping"}
-          </Button>
-          <ExportCsvButton
-            filename="Geography"
-            headers={["Province", "Revenue", "Units", "AOV"]}
-            rows={provinceTable.map((r) => [r.region, r.revenue, r.units, r.aov.toFixed(2)])}
-          />
         </div>
       </div>
 

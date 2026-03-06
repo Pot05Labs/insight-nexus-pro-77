@@ -102,48 +102,9 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
     };
   }, [user, toast]);
 
-  // Subscribe to sell_out_data and campaign_data_v2 for live dashboard toasts
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel("realtime-dashboard-data")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "sell_out_data",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          toast({
-            title: "New data received",
-            description: "Dashboard updated with latest sell-out data.",
-          });
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "campaign_data_v2",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          toast({
-            title: "New data received",
-            description: "Dashboard updated with latest campaign data.",
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, toast]);
+  // NOTE: Removed per-row "New data received" toasts — they fired on every INSERT
+  // during batch uploads (hundreds of toasts). The UploadPage already shows a single
+  // "File processed" toast when upload completes, and realtime hooks handle dashboard refreshes.
 
   const markAsRead = useCallback(
     async (id: string) => {
