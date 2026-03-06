@@ -10,11 +10,11 @@
 
 | Severity | Count |
 |----------|-------|
-| Critical | 1 |
+| Critical | 2 |
 | High | 5 |
-| Medium | 7 |
+| Medium | 9 |
 | Low | 4 |
-| **Total** | **17** |
+| **Total** | **20** |
 
 ---
 
@@ -29,6 +29,16 @@
 - **Description:** The Supabase anon/publishable key (`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`) is hardcoded as a fallback default directly in committed source code. While Supabase anon keys are designed to be public (client-side), this JWT encodes the project reference (`ftikhauhpwphyceoisme`) and role. Combined with the hardcoded URL, this allows anyone to interact with the Supabase API. The key is used as a fallback when `VITE_SUPABASE_PUBLISHABLE_KEY` env var is missing, meaning it will always be bundled into the production JavaScript regardless of env configuration.
 - **Risk:** With the anon key and URL publicly available in the JS bundle, security depends entirely on RLS policies being correctly configured. Any RLS misconfiguration becomes immediately exploitable.
 - **Fix:** Remove the hardcoded fallback values. Require env vars at build time by failing the build if `VITE_SUPABASE_URL` or `VITE_SUPABASE_PUBLISHABLE_KEY` are undefined. The comment says "Lovable's build relies on these hardcoded defaults" — configure Lovable's build environment to provide them instead.
+
+### 1b. Weak `select` String Validation Allows PostgREST Expression Injection
+- **Files:**
+  - `src/lib/query-schema.ts:70` (validation)
+  - `src/pages/QueryPage.tsx:75` (execution)
+- **Type:** SQL Injection via PostgREST (CWE-89)
+- **Severity:** Critical
+- **Description:** The AI-generated `select` string is validated by Zod only as a string of 1-500 characters. While `parseSelectColumns()` splits on commas and checks individual column names against the allowlist, the **raw unsanitized `select` string** is passed directly to `supabase.from(...).select(querySpec.select)`. PostgREST's `select` parameter supports embedded expressions including nested resource selects (e.g., `*, profiles(*)`), renamed columns (e.g., `col:renamed`), and JSON operators. An adversarial AI response (via prompt injection) could craft a `select` string that passes column-level validation but exploits PostgREST syntax to access data from related tables.
+- **Risk:** Combined with prompt injection (Finding 12), an attacker could trick the AI into generating a query with a malicious `select` like `"revenue, profiles(*)"` that accesses data from other tables.
+- **Fix:** Add strict regex validation on the `select` string to reject PostgREST-specific syntax. Only allow alphanumeric, underscores, commas, spaces, parentheses (for aggregates), and asterisks. Reject colons, dots, exclamation marks, and nested syntax.
 
 ---
 
@@ -141,7 +151,23 @@
 - **Risk:** Prompt injection could cause the AI to generate malicious query specs. However, the Zod query validation (`src/lib/query-schema.ts`) provides a strong second layer of defense by validating all AI-generated queries against allowlists before execution.
 - **Fix:** Add server-side message length limits (e.g., max 4000 chars per message, max 20 messages per request). The existing Zod validation is a good defense-in-depth measure.
 
-### 13. Missing `project_id` Scoping on Some Queries
+### 13. Unvalidated Message Roles in AI Chat Edge Function
+- **File:** `supabase/functions/ai-chat/index.ts:210,243-246`
+- **Type:** Prompt Injection Amplification (CWE-74)
+- **Severity:** Medium
+- **Description:** The `messages` array from the request body is spread directly into the OpenRouter API call without validating the `role` field. A malicious client could inject messages with `role: "system"` to override or supplement the system prompt, bypassing the prompt's injection resistance directive.
+- **Risk:** Amplifies the prompt injection surface (Finding 12) by allowing attackers to inject authoritative system-level messages directly.
+- **Fix:** Filter the messages array to only allow `"user"` and `"assistant"` roles, and limit conversation length to ~20 messages.
+
+### 13b. AI-Generated Filter Wildcards Not Validated
+- **File:** `src/pages/QueryPage.tsx:86-95`
+- **Type:** Logic Injection (CWE-20)
+- **Severity:** Medium
+- **Description:** Filter values from AI-generated queries are passed directly to Supabase `like`/`ilike` operators without validating wildcard patterns. A filter value of just `%` would match all rows, potentially returning more data than the user intended.
+- **Risk:** An AI-generated (or prompt-injected) query could use overly broad wildcards to exfiltrate large amounts of data within a single request.
+- **Fix:** Reject standalone wildcard patterns (`%`, `_`) for `like`/`ilike` operators.
+
+### 14. Missing `project_id` Scoping on Some Queries
 - **File:** `src/pages/QueryPage.tsx:45-46`, `src/hooks/useRealtimeCounts.ts:28-31`
 - **Type:** Broken Access Control (CWE-863)
 - **Severity:** Medium
@@ -153,7 +179,7 @@
 
 ## Low Findings
 
-### 14. Supabase URL Hardcoded as Fallback
+### 15. Supabase URL Hardcoded as Fallback
 - **Files:** `src/integrations/supabase/client.ts:7`, `src/services/aiChatStream.ts:5`
 - **Type:** Information Disclosure (CWE-200)
 - **Severity:** Low
@@ -161,7 +187,7 @@
 - **Risk:** Enables targeted enumeration of the Supabase project. Minimal risk since RLS should protect data.
 - **Fix:** Remove fallback; require env var at build time.
 
-### 15. Auth Token Stored in `localStorage`
+### 16. Auth Token Stored in `localStorage`
 - **File:** `src/integrations/supabase/client.ts:15`
 - **Type:** Insecure Token Storage (CWE-922)
 - **Severity:** Low
@@ -169,14 +195,14 @@
 - **Risk:** If an XSS vulnerability is found, the auth token can be stolen. However, this is standard practice for SPAs and Supabase's recommended approach.
 - **Fix:** No immediate action. Ensure no XSS vectors exist (which this audit largely confirms).
 
-### 16. No Content Security Policy (CSP) Headers
+### 17. No Content Security Policy (CSP) Headers
 - **File:** `index.html` (no CSP meta tag)
 - **Type:** Missing Security Header (CWE-1021)
 - **Severity:** Low
 - **Description:** The application does not set a Content Security Policy header, which would help mitigate XSS attacks by controlling which scripts, styles, and resources can be loaded.
 - **Fix:** Add a CSP meta tag to `index.html` or configure CSP headers at the hosting level (Lovable/CDN). Start with a report-only policy.
 
-### 17. Outdated Deno Standard Library Imports
+### 18. Outdated Deno Standard Library Imports
 - **Files:** `supabase/functions/stripe-webhook/index.ts:1` (`std@0.190.0`), `supabase/functions/chat/index.ts:1` (`std@0.168.0`), `supabase/functions/health-check/index.ts:1` (`std@0.168.0`)
 - **Type:** Outdated Dependencies (CWE-1395)
 - **Severity:** Low
@@ -206,16 +232,19 @@ The following security measures are correctly implemented:
 
 | Priority | Finding | Effort |
 |----------|---------|--------|
-| P0 | #6 — Run `npm audit fix` for dependency CVEs | Low |
-| P0 | #8 — Fix CORS subdomain matching (`includes` -> `endsWith`) | Low |
+| P0 | #1b — Harden select string validation in query-schema.ts | Low |
+| P0 | #6 — Run npm audit fix for dependency CVEs | Low |
+| P0 | #8 — Fix CORS subdomain matching (includes to endsWith) | Low |
+| P0 | #13 — Filter message roles in AI chat Edge Function | Low |
 | P1 | #1 — Remove hardcoded Supabase keys from source | Medium |
 | P1 | #2 — Add auth to health-check or reduce exposed info | Low |
 | P1 | #3 — Move rate limiting to shared store | Medium |
-| P1 | #11 — Remove duplicate `chat` Edge Function | Low |
+| P1 | #11 — Remove duplicate chat Edge Function | Low |
 | P2 | #4 — Complete file processing migration to server-side | High |
-| P2 | #5 — Add missing `neq("status", "archived")` filter | Low |
+| P2 | #5 — Add missing neq status archived filter | Low |
 | P2 | #9 — Sanitize error messages returned to clients | Low |
 | P2 | #12 — Add message length/count limits to AI chat | Low |
-| P3 | #13 — Add `project_id` scoping to remaining queries | Low |
+| P2 | #13b — Validate wildcard patterns in query filters | Low |
+| P3 | #14 — Add project_id scoping to remaining queries | Low |
 | P3 | #16 — Add Content Security Policy headers | Medium |
 | P3 | #17 — Update Deno std imports | Low |
