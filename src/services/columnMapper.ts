@@ -58,10 +58,10 @@ const CAMPAIGN_FIELDS: Record<string, string[]> = deriveFields(CAMPAIGN_SCHEMA);
 // Keep in sync with canonical-schemas.ts when adding new aliases.
 const SELL_OUT_SIGNALS = new Set([
   "unitssold", "unitssupplied", "retailer", "vendor", "sku", "barcode", "ean",
-  "productname", "store", "storename", "cogs", "grosssales", "netsales", "turnover",
+  "productname", "skuname", "store", "storename", "cogs", "grosssales", "netsales", "turnover",
   "storelocation", "region", "category", "brand", "orderedvalue", "orderedqty",
   "suppliedqty", "datedelivery", "merchandisesales", "subsproduct", "subssku",
-  "mainorderid", "province", "department",
+  "mainorderid", "province", "department", "itemssold",
 ]);
 
 const CAMPAIGN_SIGNALS = new Set([

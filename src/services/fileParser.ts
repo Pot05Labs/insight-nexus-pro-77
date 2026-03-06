@@ -370,6 +370,154 @@ export async function parsePPTX(file: File): Promise<ParsedPPTX> {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Cross-tab (pivot table) detection and unpivot                      */
+/*                                                                     */
+/*  SA retail exports often have dates as column headers:               */
+/*  | SKU Name | SKU | 1 Jul 2025 | 2 Jul 2025 | ... | Items Sold |  */
+/*                                                                     */
+/*  This detects that format and unpivots into standard rows:          */
+/*  | SKU Name | SKU | date       | units_sold  | revenue |           */
+/* ------------------------------------------------------------------ */
+
+function tryParseDateHeader(header: string): string | null {
+  if (!header || header.trim() === "") return null;
+
+  // Strip ordinal suffixes: "1st" → "1", "2nd" → "2", "3rd" → "3", "22nd" → "22"
+  const cleaned = header.replace(/(\d+)(st|nd|rd|th)\b/gi, "$1");
+
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) return null;
+
+  const year = d.getFullYear();
+  if (year < 2000 || year > 2040) return null;
+
+  // Use local date components to avoid UTC timezone shift
+  // (toISOString() converts to UTC which shifts dates back in SAST / UTC+2)
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+function tryUnpivotCrossTab(parsed: ParsedFile): ParsedFile {
+  const { headers, rows, warnings } = parsed;
+
+  // Step 1: Identify which headers are parseable dates
+  const dateInfos: { index: number; header: string; isoDate: string }[] = [];
+
+  for (let i = 0; i < headers.length; i++) {
+    const h = headers[i];
+    if (!h || h.trim() === "" || h.startsWith("__EMPTY")) continue;
+
+    const isoDate = tryParseDateHeader(h);
+    if (isoDate) {
+      dateInfos.push({ index: i, header: h, isoDate });
+    }
+  }
+
+  // Need at least 7 date columns to qualify as a cross-tab (one week of daily data)
+  if (dateInfos.length < 7) return parsed;
+
+  // Step 2: Validate that date columns are the majority of non-trivial headers
+  // This prevents false positives where a few headers accidentally parse as dates
+  const nonEmptyHeaders = headers.filter(h => h && h.trim() !== "" && !h.startsWith("__EMPTY"));
+  if (dateInfos.length < nonEmptyHeaders.length * 0.3) return parsed;
+
+  console.log(`[fileParser] Cross-tab detected: ${dateInfos.length} date columns across ${rows.length} data rows`);
+
+  // Step 3: Partition headers into dimension / date / summary
+  const firstDateIdx = dateInfos[0].index;
+  const lastDateIdx = dateInfos[dateInfos.length - 1].index;
+  const dateIndexSet = new Set(dateInfos.map(d => d.index));
+
+  // Dimension columns: everything before the first date column (SKU Name, SKU, etc.)
+  const dimensionCols = headers.slice(0, firstDateIdx).filter(h => h && h.trim() !== "");
+
+  // Summary columns: everything after the last date column (Items Sold, Revenue, etc.)
+  const summaryCols: string[] = [];
+  for (let i = lastDateIdx + 1; i < headers.length; i++) {
+    const h = headers[i];
+    if (h && h.trim() !== "" && !h.startsWith("__EMPTY") && !dateIndexSet.has(i)) {
+      summaryCols.push(h);
+    }
+  }
+
+  // Step 4: Find "total units" and "total revenue" summary columns for unit price
+  const normSummary = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const UNITS_PATTERNS = ["itemssold", "totalunits", "unitssold", "totalqty", "quantity", "totalsold", "units"];
+  const REVENUE_PATTERNS = ["revenue", "totalrevenue", "sales", "totalsales", "value", "totalvalue"];
+
+  const totalUnitsCol = summaryCols.find(h => {
+    const n = normSummary(h);
+    return UNITS_PATTERNS.some(p => n === p || n.includes(p));
+  });
+
+  const totalRevenueCol = summaryCols.find(h => {
+    const n = normSummary(h);
+    return REVENUE_PATTERNS.some(p => n === p || n.includes(p));
+  });
+
+  // Step 5: Build unpivoted headers
+  const unpivotedHeaders = [...dimensionCols, "date", "units_sold"];
+  if (totalRevenueCol) unpivotedHeaders.push("revenue");
+
+  // Step 6: Unpivot each row
+  const unpivotedRows: Record<string, string>[] = [];
+
+  for (const row of rows) {
+    // Calculate unit price from summary totals
+    const rawUnitsTotal = totalUnitsCol ? String(row[totalUnitsCol] ?? "") : "";
+    const rawRevenueTotal = totalRevenueCol ? String(row[totalRevenueCol] ?? "") : "";
+    const totalUnits = parseFloat(rawUnitsTotal.replace(/[^0-9.-]/g, ""));
+    const totalRevenue = parseFloat(rawRevenueTotal.replace(/[^0-9.-]/g, ""));
+    const unitPrice = (
+      !isNaN(totalRevenue) && !isNaN(totalUnits) && totalUnits > 0
+    ) ? totalRevenue / totalUnits : null;
+
+    // Create one row per date column
+    for (const dateInfo of dateInfos) {
+      const cellRaw = String(row[dateInfo.header] ?? "");
+      const cellValue = parseFloat(cellRaw.replace(/[^0-9.-]/g, ""));
+
+      // Skip zero or empty cells — no sales on that day
+      if (isNaN(cellValue) || cellValue === 0) continue;
+
+      const newRow: Record<string, string> = {};
+      for (const dim of dimensionCols) {
+        newRow[dim] = String(row[dim] ?? "");
+      }
+      newRow["date"] = dateInfo.isoDate;
+      newRow["units_sold"] = String(Math.round(cellValue));
+
+      if (unitPrice !== null) {
+        // Distribute revenue proportionally using per-unit price
+        newRow["revenue"] = String(Math.round(cellValue * unitPrice * 100) / 100);
+      }
+
+      unpivotedRows.push(newRow);
+    }
+  }
+
+  if (unpivotedRows.length === 0) {
+    console.warn("[fileParser] Cross-tab unpivot produced 0 rows — falling back to original");
+    return parsed;
+  }
+
+  console.log(`[fileParser] Unpivoted: ${rows.length} products x ${dateInfos.length} dates → ${unpivotedRows.length.toLocaleString()} rows`);
+
+  return {
+    headers: unpivotedHeaders,
+    rows: unpivotedRows,
+    rowCount: unpivotedRows.length,
+    fileType: parsed.fileType,
+    warnings: [
+      ...warnings,
+      `Cross-tab format detected: ${dateInfos.length} date columns unpivoted across ${rows.length} products into ${unpivotedRows.length.toLocaleString()} daily rows.`,
+    ],
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Master parse function                                              */
 /* ------------------------------------------------------------------ */
 
@@ -396,22 +544,35 @@ export async function parseFile(file: File): Promise<ParseResult> {
     throw new Error(`File too large (${fileMB.toFixed(1)} MB). Maximum for .${ext} files is ${limitMB} MB. Split into smaller files or contact support.`);
   }
 
+  let result: ParseResult;
+
   switch (ext) {
     case "csv":
     case "tsv":
     case "txt":
     case "tab": {
       const text = await file.text();
-      return { type: "tabular", data: parseCSV(text, file.name) };
+      result = { type: "tabular", data: parseCSV(text, file.name) };
+      break;
     }
     case "xlsx":
     case "xls": {
-      return { type: "tabular", data: await parseXLSX(file) };
+      result = { type: "tabular", data: await parseXLSX(file) };
+      break;
     }
     case "pptx": {
-      return { type: "presentation", data: await parsePPTX(file) };
+      result = { type: "presentation", data: await parsePPTX(file) };
+      break;
     }
     default:
       throw new Error(`Unsupported file type: .${ext}. Supported: CSV, XLSX, XLS, TSV, TXT, PPTX.`);
   }
+
+  // Post-process: detect and unpivot cross-tab (pivot table) format
+  // where dates appear as column headers (common in SA retail exports)
+  if (result.type === "tabular") {
+    result = { type: "tabular", data: tryUnpivotCrossTab(result.data) };
+  }
+
+  return result;
 }

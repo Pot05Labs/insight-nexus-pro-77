@@ -36,8 +36,9 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
   // Supabase PostgREST default max_rows is 1000, so PAGE_SIZE must
   // be <= 1000 or the server silently truncates the response and
   // the hasMore check fails (rows.length < PAGE_SIZE → stops early).
+  // 50K rows is ~6MB of JSON — well within browser memory limits.
   const PAGE_SIZE = 1000;
-  const MAX_ROWS = 10_000;
+  const MAX_ROWS = 50_000;
   let allRows: SellOutRow[] = [];
   let offset = 0;
   let hasMore = true;
@@ -60,7 +61,7 @@ async function fetchSellOutData(): Promise<SellOutRow[]> {
     allRows = allRows.concat(rows);
 
     if (allRows.length >= MAX_ROWS) {
-      console.warn(`[useSellOutData] Capped at ${MAX_ROWS} rows (total available: ${allRows.length}+). Dashboard will use this subset for visualisation.`);
+      console.warn(`[useSellOutData] Capped at ${MAX_ROWS.toLocaleString()} rows. Dashboard will use this subset.`);
       break;
     }
 

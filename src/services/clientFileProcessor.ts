@@ -61,13 +61,14 @@ const CAMPAIGN_ALIASES: Record<string, string[]> = aliasesFromSchema(CAMPAIGN_SC
 
 const SELL_OUT_SIGNALS = [
   "units_sold", "units_supplied", "sales_value", "retailer", "sku_code",
-  "product_name", "store", "store_name", "channel", "barcode", "ean",
+  "product_name", "sku_name", "store", "store_name", "channel", "barcode", "ean",
   "upc", "asin", "cogs", "returns", "units_delivered", "sell_out",
   "qty_sold", "sold_qty", "gross_sales", "net_sales", "turnover",
   "store_location", "region", "category", "brand", "sub_brand", "format_size",
   "ordered_value", "units_ordered", "ordered_qty", "supplied_qty",
   "vendor", "date_delivery", "delivery_date", "merchandise_sales",
   "subs_product", "subs_sku", "mainorderid", "province", "department",
+  "items_sold",
 ];
 
 const CAMPAIGN_SIGNALS = [

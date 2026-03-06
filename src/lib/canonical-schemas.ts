@@ -19,7 +19,8 @@ export const SELL_OUT_SCHEMA: Record<string, SchemaField> = {
     required: true,
     description: "Product name or description",
     aliases: ["product", "product_name", "product_name_raw", "item", "description",
-      "product_description", "item_name", "title", "product_title", "item_description"],
+      "product_description", "item_name", "title", "product_title", "item_description",
+      "sku_name", "sku name"],
   },
   sku: {
     required: false,
@@ -80,7 +81,8 @@ export const SELL_OUT_SCHEMA: Record<string, SchemaField> = {
     required: true,
     description: "Units sold or quantity",
     aliases: ["units", "units_sold", "qty", "quantity", "volume", "units_ordered",
-      "ordered_qty", "ordered qty", "qty_sold", "sold_qty", "total_units"],
+      "ordered_qty", "ordered qty", "qty_sold", "sold_qty", "total_units",
+      "items_sold", "items sold", "items"],
   },
   units_supplied: {
     required: false,
