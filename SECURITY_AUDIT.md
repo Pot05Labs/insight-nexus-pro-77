@@ -11,10 +11,10 @@
 | Severity | Count |
 |----------|-------|
 | Critical | 2 |
-| High | 6 |
-| Medium | 11 |
-| Low | 4 |
-| **Total** | **23** |
+| High | 7 |
+| Medium | 13 |
+| Low | 7 |
+| **Total** | **27** |
 
 ---
 
@@ -90,6 +90,14 @@
 - **Description:** The process-upload Edge Function downloads and parses whatever file is at the storage path without validating file size or type server-side. The file_type column is set by the client at insert time and could be spoofed. The client-side 100MB limit is trivially bypassed via direct API calls. An authenticated user could upload an arbitrarily large file, insert a data_uploads record with a fake file_type, and invoke process-upload to crash the worker.
 - **Risk:** Denial of service by uploading massive files. Potential unexpected behavior from mismatched file types.
 - **Fix:** Add server-side file size check (reject > 100MB), validate file_type against an allowlist, and verify blob size before parsing.
+
+### 5c. `create-checkout` Crashes on Missing Authorization Header
+- **File:** `supabase/functions/create-checkout/index.ts:42-43`
+- **Type:** Improper Error Handling (CWE-755)
+- **Severity:** High
+- **Description:** The function uses a non-null assertion `req.headers.get("Authorization")!` which produces `null` when no header is present. The subsequent `.replace("Bearer ", "")` converts this to the string `"null"`, which is passed to `getUser()` and results in a 500 error instead of a proper 401. Compare with `create-checkout-session` which properly checks for the header first.
+- **Risk:** Unauthenticated requests return 500 (Internal Server Error) instead of 401, leaking that the function exists and masking auth failures in monitoring.
+- **Fix:** Add explicit null/Bearer prefix check before extracting the token, matching the pattern used in `create-checkout-session` and the shared `auth.ts` helper.
 
 ### 6. Dependency Vulnerabilities — 19 Known CVEs (10 High Severity)
 - **File:** `package.json` / `package-lock.json`
@@ -191,6 +199,20 @@
 - **Risk:** Sensitive business data (revenue, costs, campaign spend) exposed via browser console.
 - **Fix:** Strip console.log calls from production builds using a Vite plugin (e.g., vite-plugin-remove-console) or replace with a conditional logger that only runs in development.
 
+### 14c. Missing Soft-Delete Filter in process-upload Post-Insert Metrics
+- **File:** `supabase/functions/process-upload/index.ts:813-815,831-834`
+- **Type:** Soft-Delete Compliance (CWE-863)
+- **Severity:** Medium
+- **Description:** After inserting data, the process-upload function queries sell_out_data and campaign_data_v2 by upload_id to compute summary metrics, but omits `.is("deleted_at", null)`. While freshly inserted rows will have null deleted_at, a retry scenario after partial soft-delete could include stale data.
+- **Fix:** Add `.is("deleted_at", null)` to both queries at lines 815 and 834.
+
+### 14d. `check-subscription` Uses SERVICE_ROLE_KEY for Auth Verification
+- **File:** `supabase/functions/check-subscription/index.ts:37-39`
+- **Type:** Excessive Privilege (CWE-250)
+- **Severity:** Medium
+- **Description:** Creates a Supabase client with SERVICE_ROLE_KEY just to call `auth.getUser(token)`. While getUser() validates the JWT regardless, this client bypasses RLS. If any future queries were added using this client, they would skip all row-level security.
+- **Fix:** Use SUPABASE_ANON_KEY for the auth verification client, as other Edge Functions do via the shared auth helper.
+
 ### 15. Missing `project_id` Scoping on Some Queries
 - **File:** `src/pages/QueryPage.tsx:45-46`, `src/hooks/useRealtimeCounts.ts:28-31`
 - **Type:** Broken Access Control (CWE-863)
@@ -232,6 +254,27 @@
 - **Severity:** Low
 - **Description:** Some Edge Functions import from older versions of the Deno standard library (0.168.0, 0.190.0). These may contain known vulnerabilities.
 - **Fix:** Update to the latest stable Deno std version across all Edge Functions.
+
+### 19b. `client_intelligence` Table Not in Documented Schema
+- **Files:** `src/services/learningPipeline.ts:41,124,285`, `supabase/functions/ai-chat/index.ts:157`
+- **Type:** Schema Governance Gap (CWE-1059)
+- **Severity:** Low
+- **Description:** The `client_intelligence` table is queried from both frontend and ai-chat Edge Function but is not listed in CLAUDE.md's "Database Tables That Exist" section. Frontend code uses `(supabase as any)` casts to access it, bypassing TypeScript type safety. Its soft-delete and tenant scoping requirements are undefined.
+- **Fix:** Add `client_intelligence` to CLAUDE.md with key columns and confirm RLS policies exist.
+
+### 19c. Duplicated CORS Logic Across 7 Edge Functions
+- **Files:** `chat/`, `create-checkout-session/`, `create-checkout/`, `check-subscription/`, `customer-portal/`, `ai-schema-detect/`, `ai-extract-campaign/` index.ts files
+- **Type:** Security Maintenance Risk (CWE-1059)
+- **Severity:** Low
+- **Description:** Seven Edge Functions define their own `getAllowedOrigin` and `corsHeaders` functions instead of importing from `_shared/cors.ts`. CORS policy changes must be applied in 8 places, increasing inconsistency risk.
+- **Fix:** Refactor to import from `_shared/cors.ts` and remove duplicated logic.
+
+### 19d. Inconsistent `deleted_at` Filtering on `projects` Table
+- **Files:** `src/hooks/useSellOutData.ts:27`, `src/hooks/useCampaignData.ts:22`, `src/services/demoDataSeeder.ts:84`, `src/services/uploadOrchestrator.ts:45`
+- **Type:** Soft-Delete Compliance (CWE-863)
+- **Severity:** Low
+- **Description:** Some `projects` queries include `.is("deleted_at", null)` (e.g., projectContext.ts, ai-chat/index.ts) while others do not. The projects table has a `deleted_at` column but is not listed in CLAUDE.md's soft-delete mandate.
+- **Fix:** Standardize all `projects` queries to include `.is("deleted_at", null)`.
 
 ---
 
