@@ -237,10 +237,18 @@ const UploadPage = () => {
             : `${upload.row_count ?? 0} rows inserted as ${typeLabel} data.`,
         });
 
-        // Invalidate dashboard caches so new data appears immediately
+        // Invalidate ALL dashboard caches so new data appears immediately
         queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
         queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
         queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
+        queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
+        queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
+        queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
+        queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+        queryClient.invalidateQueries({ queryKey: ["top-products"] });
+        queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
+        queryClient.invalidateQueries({ queryKey: ["filter-options"] });
+        queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
 
         // Learning pipeline runs once after all uploads complete (in uploadAll)
       }
@@ -338,10 +346,21 @@ const UploadPage = () => {
         processingMessage: undefined,
       });
     }
-    // Invalidate React Query caches so dashboard/pages show new data
+    // Invalidate ALL React Query caches so dashboard/pages show new data.
+    // Both legacy raw-data hooks AND new server-side RPC hooks must be
+    // invalidated — otherwise the dashboard may show stale KPIs, counts,
+    // and date ranges after an upload.
     queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
     queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
     queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
+    queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
+    queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["top-products"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
+    queryClient.invalidateQueries({ queryKey: ["filter-options"] });
+    queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
     fetchUploads();
   };
 
@@ -515,10 +534,18 @@ const UploadPage = () => {
       }
 
       toast({ title: "File deleted", description: `${deleteTarget.file_name} and all related data removed.` });
-      // Invalidate caches after deletion
+      // Invalidate ALL caches after deletion
       queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
       queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
       queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
+      queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+      queryClient.invalidateQueries({ queryKey: ["top-products"] });
+      queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
+      queryClient.invalidateQueries({ queryKey: ["filter-options"] });
+      queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
     } catch (err) {
       console.error("[UploadPage] Delete failed:", err);
       toast({ title: "Delete failed", description: "Could not delete file. Please try again.", variant: "destructive" });

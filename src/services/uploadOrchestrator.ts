@@ -366,10 +366,12 @@ export async function orchestrateUpload(
     auditData.warnings.push(`Insert count mismatch: attempted ${auditData.attemptedInserts}, success ${auditData.successfulInserts} + failed ${auditData.failedInserts}`);
   }
 
-  // Update upload record
+  // Update upload record — row_count stores ACTUAL inserted rows, not file rows.
+  // This prevents the upload page from showing inflated totals when batches fail.
+  // The error_message includes the file row count for reference.
   const { error: updateError } = await supabase.from("data_uploads").update({
     status: auditData.successfulInserts > 0 ? "ready" : "error",
-    row_count: auditData.fileRowCount,  // Store total file rows for accurate reporting
+    row_count: auditData.successfulInserts,  // Actual rows inserted into DB
     data_type: mapping.dataType,
     column_names: headers,
     column_mapping: mapping.fieldMap,

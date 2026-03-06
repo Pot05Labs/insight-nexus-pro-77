@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { useSellOutKPIs } from "@/hooks/useSellOutKPIs";
 import { useCampaignKPIs } from "@/hooks/useCampaignKPIs";
 import { useSellOutAggregation } from "@/hooks/useAggregation";
 import { useCampaignAggregation } from "@/hooks/useAggregation";
+import { useFilterOptions } from "@/hooks/useFilterOptions";
 
 // ── Helpers for Key Findings ──
 
@@ -52,15 +54,13 @@ function formatMonthLabel(yyyyMm: string): string {
 
 const DashboardHome = () => {
   // Raw data hooks — kept for period comparison, attribution, AI summary,
-  // ShareOfVoicePanel, AnomalyDetectionPanel, and data context line
+  // ShareOfVoicePanel, AnomalyDetectionPanel
   const { data, loading, refetch } = useSellOutData();
   const { data: campaigns, loading: campaignLoading, refetch: refetchCampaigns } = useCampaignData();
   const { user } = useAuth();
   const { toast } = useToast();
   const periodType: PeriodType = "MoM";
   const [demoLoading, setDemoLoading] = useState(false);
-  const hasData = data.length > 0;
-  const hasCampaigns = campaigns.length > 0;
 
   // Global filter consumption
   const { filters, filterSellOut, filterCampaigns } = useGlobalFilters();
@@ -75,13 +75,37 @@ const DashboardHome = () => {
   const { data: monthlyRevenue } = useSellOutAggregation("month", filters, 36);
   const { data: monthlySpend } = useCampaignAggregation("month", filters, null, 36);
   const { data: retailerAgg } = useSellOutAggregation("retailer", filters, 20);
+  const { data: filterOptions } = useFilterOptions();
+
+  // hasData/hasCampaigns: check BOTH raw data AND server-side RPCs.
+  // This prevents the empty state from showing when RPCs have data but
+  // the paginated raw fetch hasn't completed or returned a subset.
+  const hasData = data.length > 0 || (soKpis?.row_count ?? 0) > 0;
+  const hasCampaigns = campaigns.length > 0 || (cpKpis?.campaign_count ?? 0) > 0;
 
   // Period-over-Period comparison (uses filtered raw data — cannot be server-side yet)
   const comparison = usePeriodComparison(filteredData, filteredCampaigns, periodType);
 
-  // Auto-refresh dashboard when sell_out_data or campaign_data_v2 changes in real time
-  useRealtimeSellOut(user?.id, refetch);
-  useRealtimeCampaign(user?.id, refetchCampaigns);
+  // Auto-refresh dashboard when sell_out_data or campaign_data_v2 changes in real time.
+  // Must invalidate BOTH raw data hooks AND server-side RPC hooks.
+  const queryClient = useQueryClient();
+  const handleSellOutChange = useCallback(() => {
+    refetch();
+    queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
+    queryClient.invalidateQueries({ queryKey: ["sell-out-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["top-products"] });
+    queryClient.invalidateQueries({ queryKey: ["filter-options"] });
+    queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
+  }, [refetch, queryClient]);
+  const handleCampaignChange = useCallback(() => {
+    refetchCampaigns();
+    queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-aggregation"] });
+    queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
+    queryClient.invalidateQueries({ queryKey: ["filter-options"] });
+  }, [refetchCampaigns, queryClient]);
+  useRealtimeSellOut(user?.id, handleSellOutChange);
+  useRealtimeCampaign(user?.id, handleCampaignChange);
 
   const handleLoadDemo = async () => {
     setDemoLoading(true);
@@ -203,21 +227,43 @@ const DashboardHome = () => {
     }));
   }, [monthlyRevenue, monthlySpend]);
 
-  // ── Data Context Line (uses raw data for retailer count, transaction count, date range) ──
+  // ── Data Context Line (uses server-side RPC for accurate counts) ──
+  // Previously used `data.length` from the paginated raw fetch (max 50K rows
+  // via 1K pages), which could undercount when pagination stopped early or
+  // PostgREST limits were hit. Now uses the RPC `row_count` which counts
+  // ALL rows in PostgreSQL, and `get_filter_options` for the true date range.
   const dataContext = useMemo(() => {
     if (!hasData) return null;
-    const retailers = new Set(data.map((r) => r.retailer).filter(Boolean));
-    const dates = data.map((r) => r.date).filter(Boolean) as string[];
-    if (dates.length === 0) return null;
-    dates.sort();
-    const minDate = formatMonthLabel(dates[0].slice(0, 7));
-    const maxDate = formatMonthLabel(dates[dates.length - 1].slice(0, 7));
+
+    // Prefer server-side counts (accurate across millions of rows)
+    const rowCount = soKpis?.row_count ?? data.length;
+    const retailerCount = soKpis?.distinct_retailers ?? new Set(data.map((r) => r.retailer).filter(Boolean)).size;
+
+    // Date range: prefer server-side MIN/MAX from get_filter_options
+    let dateRange: string | null = null;
+    if (filterOptions?.date_min && filterOptions?.date_max) {
+      const minDate = formatMonthLabel(filterOptions.date_min.slice(0, 7));
+      const maxDate = formatMonthLabel(filterOptions.date_max.slice(0, 7));
+      dateRange = minDate === maxDate ? minDate : `${minDate} \u2013 ${maxDate}`;
+    } else {
+      // Fallback to raw data dates while RPC loads
+      const dates = data.map((r) => r.date).filter(Boolean) as string[];
+      if (dates.length > 0) {
+        dates.sort();
+        const minDate = formatMonthLabel(dates[0].slice(0, 7));
+        const maxDate = formatMonthLabel(dates[dates.length - 1].slice(0, 7));
+        dateRange = minDate === maxDate ? minDate : `${minDate} \u2013 ${maxDate}`;
+      }
+    }
+
+    if (!dateRange) return null;
+
     return {
-      retailerCount: retailers.size,
-      transactionCount: data.length,
-      dateRange: minDate === maxDate ? minDate : `${minDate} \u2013 ${maxDate}`,
+      retailerCount,
+      transactionCount: rowCount,
+      dateRange,
     };
-  }, [data, hasData]);
+  }, [hasData, soKpis, filterOptions, data]);
 
   // ── Auto-Computed Key Findings (using server-side aggregation data) ──
   const keyFindings = useMemo<KeyFinding[]>(() => {
