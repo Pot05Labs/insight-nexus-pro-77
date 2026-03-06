@@ -8,10 +8,12 @@ import { ArrowUpDown, Lightbulb, DollarSign, ShoppingCart, Tag, Package, Chevron
 import EmptyState from "@/components/EmptyState";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import KpiCard from "@/components/KpiCard";
-import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useSellOutData, fmtZAR } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
 import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
+import { useSellOutAggregation } from "@/hooks/useAggregation";
+import { useSellOutKPIs } from "@/hooks/useSellOutKPIs";
 import { chartCursorStyle, chartGridProps, CHART_COLORS, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, CHART_PALETTE, chartTooltipStyle } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { buildRetailersSummary } from "@/services/insightsSnapshot";
@@ -21,18 +23,26 @@ type SortKey = "retailer" | "revenue" | "units" | "aov" | "stores" | "index";
 const PAGE_SIZE = 25;
 
 const RetailersPage = () => {
-  const { data: rawData, loading } = useSellOutData();
+  // Raw data — kept for period comparison, radar chart, table (store counts), AI summary
+  const { data: rawData, loading: rawLoading } = useSellOutData();
   const { data: campaigns } = useCampaignData();
-  const { filterSellOut } = useGlobalFilters();
+  const { filters, filterSellOut } = useGlobalFilters();
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
   const periodType: PeriodType = "MoM";
   const [page, setPage] = useState(0);
 
-  // Apply global filters
+  // ── Server-side aggregation hooks ──────────────────────────────────
+  const { data: retailerChartAgg, isLoading: chartAggLoading } = useSellOutAggregation("retailer", filters, 8);
+  const { data: retailerFullAgg, isLoading: fullAggLoading } = useSellOutAggregation("retailer", filters, 100);
+  const { data: kpis, isLoading: kpisLoading } = useSellOutKPIs(filters);
+
+  const aggLoading = chartAggLoading || fullAggLoading || kpisLoading;
+
+  // Apply global filters to raw data (still needed for period comparison, radar, AI summary)
   const data = useMemo(() => filterSellOut(rawData), [rawData, filterSellOut]);
 
-  // Period-over-period comparison
+  // Period-over-period comparison (needs raw row-level data)
   const comparison = usePeriodComparison(data, campaigns, periodType);
 
   const handleSort = (key: SortKey) => {
@@ -41,11 +51,11 @@ const RetailersPage = () => {
     setPage(0);
   };
 
-  // --- KPI values ---
-  const totalRevenue = useMemo(() => data.reduce((s, r) => s + Number(r.revenue ?? 0), 0), [data]);
-  const totalUnits = useMemo(() => data.reduce((s, r) => s + Number(r.units_sold ?? 0), 0), [data]);
-  const avgOrderValue = useMemo(() => totalUnits > 0 ? totalRevenue / totalUnits : 0, [totalRevenue, totalUnits]);
-  const uniqueProductCount = useMemo(() => new Set(data.map((r) => r.product_name_raw).filter(Boolean)).size, [data]);
+  // ── KPI values from server-side KPIs ──────────────────────────────
+  const totalRevenue = kpis?.total_revenue ?? 0;
+  const totalUnits = kpis?.total_units ?? 0;
+  const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
+  const uniqueProductCount = kpis?.distinct_products ?? 0;
 
   const kpiCards = useMemo(() => [
     { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
@@ -54,43 +64,47 @@ const RetailersPage = () => {
     { label: "Unique Products", value: uniqueProductCount.toString(), icon: Package, delta: comparison.products.deltaPct },
   ], [totalRevenue, totalUnits, avgOrderValue, uniqueProductCount, comparison]);
 
-  // Revenue by retailer (all time for chart)
-  const revByRetailer = useMemo(() => aggregate(data, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0)), [data]);
-  const chartData = useMemo(() =>
-    Object.entries(revByRetailer).sort(([, a], [, b]) => b - a).slice(0, 8)
-      .map(([retailer, revenue]) => ({ retailer, revenue: Math.round(revenue) })),
-    [revByRetailer]
-  );
+  // ── Chart data from server-side aggregation (top 8 retailers) ─────
+  const chartData = useMemo(() => {
+    if (!retailerChartAgg) return [];
+    return retailerChartAgg.map((r) => ({
+      retailer: r.group_key,
+      revenue: Math.round(r.total_revenue),
+    }));
+  }, [retailerChartAgg]);
 
-  // Table data with benchmarking index (100 = average)
+  // ── Table data — uses server agg for revenue/units, raw data for store counts ──
   const tableData = useMemo(() => {
-    const map: Record<string, { revenue: number; units: number; stores: Set<string> }> = {};
+    if (!retailerFullAgg) return [];
+
+    // Build store count map from raw data (still needs row-level data)
+    const storeCounts: Record<string, Set<string>> = {};
     data.forEach((r) => {
       const ret = r.retailer ?? "Unknown";
-      if (!map[ret]) map[ret] = { revenue: 0, units: 0, stores: new Set() };
-      map[ret].revenue += Number(r.revenue ?? 0);
-      map[ret].units += Number(r.units_sold ?? 0);
-      if (r.store_location) map[ret].stores.add(r.store_location);
+      storeCounts[ret] ??= new Set<string>();
+      if (r.store_location) storeCounts[ret].add(r.store_location);
     });
 
-    const entries = Object.entries(map);
-    const avgRevenue = entries.length > 0 ? entries.reduce((s, [, v]) => s + v.revenue, 0) / entries.length : 1;
+    const avgRevenue = retailerFullAgg.length > 0
+      ? retailerFullAgg.reduce((s, r) => s + r.total_revenue, 0) / retailerFullAgg.length
+      : 1;
 
-    const arr = entries.map(([retailer, v]) => ({
-      retailer,
-      revenue: v.revenue,
-      units: v.units,
-      aov: v.units > 0 ? v.revenue / v.units : 0,
-      stores: v.stores.size,
-      index: Math.round((v.revenue / avgRevenue) * 100),
+    const arr = retailerFullAgg.map((r) => ({
+      retailer: r.group_key,
+      revenue: r.total_revenue,
+      units: r.total_units,
+      aov: r.total_units > 0 ? r.total_revenue / r.total_units : 0,
+      stores: storeCounts[r.group_key]?.size ?? 0,
+      index: Math.round((r.total_revenue / avgRevenue) * 100),
     }));
+
     arr.sort((a, b) => {
       const mul = sortAsc ? 1 : -1;
       if (sortKey === "retailer") return mul * a.retailer.localeCompare(b.retailer);
       return mul * ((a[sortKey] as number) - (b[sortKey] as number));
     });
     return arr;
-  }, [data, sortKey, sortAsc]);
+  }, [retailerFullAgg, data, sortKey, sortAsc]);
 
   // Radar data for benchmarking (top 6 retailers, normalized dimensions)
   const radarData = useMemo(() => {
@@ -117,11 +131,11 @@ const RetailersPage = () => {
   const radarRetailers = useMemo(() => tableData.slice(0, 6).map((r) => r.retailer), [tableData]);
   const radarColors = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(224 15% 45%)"];
 
-  const hasData = data.length > 0;
+  const hasData = (retailerChartAgg && retailerChartAgg.length > 0) || data.length > 0;
   const dataSummary = useMemo(() => buildRetailersSummary(data)?.summary ?? "", [data]);
 
   // Data context line
-  const uniqueRetailers = useMemo(() => new Set(data.map((r) => r.retailer).filter(Boolean)).size, [data]);
+  const uniqueRetailers = useMemo(() => kpis?.distinct_retailers ?? new Set(data.map((r) => r.retailer).filter(Boolean)).size, [kpis, data]);
   const uniqueStores = useMemo(() => new Set(data.map((r) => r.store_location).filter(Boolean)).size, [data]);
   const dateRange = useMemo(() => {
     const dates = data.map((r) => r.date).filter(Boolean).sort();
@@ -134,14 +148,16 @@ const RetailersPage = () => {
 
   // Key finding: top retailer by revenue
   const keyFinding = useMemo(() => {
-    if (tableData.length === 0 || totalRevenue === 0) return null;
-    const top = tableData[0];
+    if (chartData.length === 0 || totalRevenue === 0) return null;
+    const top = chartData[0];
     const pct = ((top.revenue / totalRevenue) * 100).toFixed(1);
     return `Market leader: ${top.retailer} at ${fmtZAR(top.revenue)} \u2014 ${pct}% revenue share`;
-  }, [tableData, totalRevenue]);
+  }, [chartData, totalRevenue]);
 
-  if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (!hasData) return <div className="p-8"><EmptyState message="Upload data to see retailer analytics." /></div>;
+  const loading = rawLoading || aggLoading;
+
+  if (loading && !hasData) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
+  if (!hasData && !loading) return <div className="p-8"><EmptyState message="Upload data to see retailer analytics." /></div>;
 
   const SortIcon = ({ col }: { col: SortKey }) => (
     <ArrowUpDown className={`inline h-3 w-3 ml-1 cursor-pointer ${sortKey === col ? "text-primary" : "text-muted-foreground/40"}`} onClick={() => handleSort(col)} />
@@ -170,7 +186,7 @@ const RetailersPage = () => {
             label={kpi.label}
             value={kpi.value}
             icon={kpi.icon}
-            loading={loading}
+            loading={kpisLoading}
             delay={i * 0.06}
             delta={kpi.delta}
             periodLabel={comparison.previousLabel}
@@ -188,17 +204,21 @@ const RetailersPage = () => {
       <Card className="glass-card">
         <CardHeader><CardTitle className="font-display text-base">Revenue by Retailer</CardTitle></CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
-            <BarChart data={chartData}>
-              <CartesianGrid {...chartGridProps} />
-              <XAxis dataKey="retailer" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
-              <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-              <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-              <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
-                {chartData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {chartAggLoading ? (
+            <Skeleton className="h-[300px] w-full" />
+          ) : (
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT.full}>
+              <BarChart data={chartData}>
+                <CartesianGrid {...chartGridProps} />
+                <XAxis dataKey="retailer" className={axisClassName} angle={-20} textAnchor="end" height={50} interval={0} />
+                <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
+                  {chartData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
@@ -236,50 +256,56 @@ const RetailersPage = () => {
       <Card>
         <CardHeader><CardTitle className="font-display text-base">Retailer Performance</CardTitle></CardHeader>
         <CardContent>
-          <div className="rounded-lg border overflow-auto max-h-[500px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs">Retailer <SortIcon col="retailer" /></TableHead>
-                  <TableHead className="text-xs text-right">Revenue <SortIcon col="revenue" /></TableHead>
-                  <TableHead className="text-xs text-right">Units <SortIcon col="units" /></TableHead>
-                  <TableHead className="text-xs text-right">Avg Order Value <SortIcon col="aov" /></TableHead>
-                  <TableHead className="text-xs text-right">Stores <SortIcon col="stores" /></TableHead>
-                  <TableHead className="text-xs text-right">Index <SortIcon col="index" /></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((r, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="text-sm font-medium">{r.retailer}</TableCell>
-                    <TableCell className="text-sm text-right font-medium">{fmtZAR(r.revenue)}</TableCell>
-                    <TableCell className="text-sm text-right">{r.units.toLocaleString()}</TableCell>
-                    <TableCell className="text-sm text-right">{fmtZAR(r.aov)}</TableCell>
-                    <TableCell className="text-sm text-right">{r.stores}</TableCell>
-                    <TableCell className="text-sm text-right">
-                      <span className={r.index >= 100 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.index >= 80 ? "text-foreground" : "text-red-600 dark:text-red-400"}>
-                        {r.index}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          {tableData.length > PAGE_SIZE && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <span className="text-xs text-muted-foreground">
-                Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, tableData.length)} of {tableData.length}
-              </span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= tableData.length} onClick={() => setPage(p => p + 1)}>
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
+          {fullAggLoading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : (
+            <>
+              <div className="rounded-lg border overflow-auto max-h-[500px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Retailer <SortIcon col="retailer" /></TableHead>
+                      <TableHead className="text-xs text-right">Revenue <SortIcon col="revenue" /></TableHead>
+                      <TableHead className="text-xs text-right">Units <SortIcon col="units" /></TableHead>
+                      <TableHead className="text-xs text-right">Avg Order Value <SortIcon col="aov" /></TableHead>
+                      <TableHead className="text-xs text-right">Stores <SortIcon col="stores" /></TableHead>
+                      <TableHead className="text-xs text-right">Index <SortIcon col="index" /></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-sm font-medium">{r.retailer}</TableCell>
+                        <TableCell className="text-sm text-right font-medium">{fmtZAR(r.revenue)}</TableCell>
+                        <TableCell className="text-sm text-right">{r.units.toLocaleString()}</TableCell>
+                        <TableCell className="text-sm text-right">{fmtZAR(r.aov)}</TableCell>
+                        <TableCell className="text-sm text-right">{r.stores}</TableCell>
+                        <TableCell className="text-sm text-right">
+                          <span className={r.index >= 100 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.index >= 80 ? "text-foreground" : "text-red-600 dark:text-red-400"}>
+                            {r.index}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
-            </div>
+              {tableData.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between px-4 py-3 border-t">
+                  <span className="text-xs text-muted-foreground">
+                    Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, tableData.length)} of {tableData.length}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= tableData.length} onClick={() => setPage(p => p + 1)}>
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

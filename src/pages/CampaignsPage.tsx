@@ -23,6 +23,9 @@ import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axi
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import { computeCampaignAttribution, type CampaignFlight } from "@/lib/attribution-utils";
 import { buildCampaignsSummary } from "@/services/insightsSnapshot";
+import { useCampaignKPIs } from "@/hooks/useCampaignKPIs";
+import { useCampaignAggregation } from "@/hooks/useAggregation";
+import { useCampaignFlights } from "@/hooks/useCampaignFlights";
 
 type SortKey = "campaign_name" | "spend" | "impressions" | "clicks" | "conversions" | "revenue" | "roas";
 
@@ -37,24 +40,31 @@ const CampaignsPage = () => {
   const { data: sellOutData } = useSellOutData();
 
   // Global filter consumption
-  const { filterCampaigns, filterSellOut } = useGlobalFilters();
+  const { filters, filterCampaigns, filterSellOut } = useGlobalFilters();
   const filteredCampaigns = useMemo(() => filterCampaigns(campaigns), [campaigns, filterCampaigns]);
   const filteredSellOut = useMemo(() => filterSellOut(sellOutData), [sellOutData, filterSellOut]);
 
-  // Period comparison
+  // Server-side aggregation hooks (avoid aggregating all raw rows in the browser)
+  const rpcPlatform = platformFilter === "all" ? null : platformFilter;
+  const { data: campKpis, isLoading: kpisLoading } = useCampaignKPIs(filters, rpcPlatform);
+  const { data: monthlyAgg } = useCampaignAggregation("month", filters, rpcPlatform, 50);
+  const { data: platformAgg } = useCampaignAggregation("platform", filters, null, 6);
+  const { data: flightRows } = useCampaignFlights(filters, rpcPlatform, 20);
+
+  // Period comparison (uses raw data for now)
   const comparison = usePeriodComparison(filteredSellOut, filteredCampaigns, periodType);
 
   const platforms = useMemo(() => [...new Set(filteredCampaigns.map((c) => c.platform).filter(Boolean))].sort() as string[], [filteredCampaigns]);
-  // Platform filter applied on top of global filters
+  // Platform filter applied on top of global filters (for campaign table & attribution)
   const platformFiltered = platformFilter === "all" ? filteredCampaigns : filteredCampaigns.filter((c) => c.platform === platformFilter);
   const hasData = campaigns.length > 0;
 
-  // KPIs
-  const totalSpend = platformFiltered.reduce((s, r) => s + Number(r.spend ?? 0), 0);
-  const totalImpressions = platformFiltered.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
-  const totalClicks = platformFiltered.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
-  const totalConversions = platformFiltered.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
-  const totalRevenue = platformFiltered.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  // KPIs — from server-side aggregation
+  const totalSpend = campKpis?.total_spend ?? 0;
+  const totalImpressions = campKpis?.total_impressions ?? 0;
+  const totalClicks = campKpis?.total_clicks ?? 0;
+  const totalConversions = campKpis?.total_conversions ?? 0;
+  const totalRevenue = campKpis?.total_revenue ?? 0;
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
@@ -67,39 +77,32 @@ const CampaignsPage = () => {
     { label: "ROAS", value: `${roas.toFixed(1)}x`, icon: DollarSign },
   ];
 
-  // Performance over time (monthly)
+  // Performance over time (monthly) — from server-side aggregation
   const timeMap = useMemo(() => {
-    const m: Record<string, { spend: number; impressions: number; clicks: number; revenue: number }> = {};
-    platformFiltered.forEach((r) => {
-      const month = (r.flight_start ?? "").slice(0, 7);
-      if (!month) return;
-      if (!m[month]) m[month] = { spend: 0, impressions: 0, clicks: 0, revenue: 0 };
-      m[month].spend += Number(r.spend ?? 0);
-      m[month].impressions += Number(r.impressions ?? 0);
-      m[month].clicks += Number(r.clicks ?? 0);
-      m[month].revenue += Number(r.revenue ?? 0);
-    });
-    return Object.entries(m).sort(([a], [b]) => a.localeCompare(b)).map(([month, v]) => ({
-      month, spend: Math.round(v.spend), impressions: v.impressions, clicks: v.clicks, revenue: Math.round(v.revenue),
-    }));
-  }, [platformFiltered]);
+    if (!monthlyAgg?.length) return [];
+    return [...monthlyAgg]
+      .sort((a, b) => a.group_key.localeCompare(b.group_key))
+      .map((r) => ({
+        month: r.group_key,
+        spend: Math.round(r.total_spend),
+        impressions: r.total_impressions,
+        clicks: r.total_clicks,
+        revenue: Math.round(r.total_revenue),
+      }));
+  }, [monthlyAgg]);
 
-  // Platform breakdown
+  // Platform breakdown — from server-side aggregation
   const platformData = useMemo(() => {
-    const m: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; revenue: number }> = {};
-    platformFiltered.forEach((r) => {
-      const p = r.platform ?? "Unknown";
-      if (!m[p]) m[p] = { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 };
-      m[p].spend += Number(r.spend ?? 0);
-      m[p].impressions += Number(r.impressions ?? 0);
-      m[p].clicks += Number(r.clicks ?? 0);
-      m[p].conversions += Number(r.conversions ?? 0);
-      m[p].revenue += Number(r.revenue ?? 0);
-    });
-    return Object.entries(m).sort(([, a], [, b]) => b.spend - a.spend).slice(0, 6).map(([platform, v]) => ({
-      platform, spend: Math.round(v.spend), impressions: v.impressions, clicks: v.clicks, conversions: v.conversions, revenue: Math.round(v.revenue),
+    if (!platformAgg?.length) return [];
+    return platformAgg.map((r) => ({
+      platform: r.group_key,
+      spend: Math.round(r.total_spend),
+      impressions: r.total_impressions,
+      clicks: r.total_clicks,
+      conversions: r.total_conversions,
+      revenue: Math.round(r.total_revenue),
     }));
-  }, [platformFiltered]);
+  }, [platformAgg]);
 
   // Extract distinct brands from sell-out data for scoped attribution
   const sellOutBrands = useMemo(() => {
@@ -110,7 +113,7 @@ const CampaignsPage = () => {
     return Array.from(brands);
   }, [filteredSellOut]);
 
-  // Campaign Attribution
+  // Campaign Attribution (needs raw rows for day-level revenue matching)
   const attribution = useMemo(() => {
     if (filteredSellOut.length === 0 || filteredCampaigns.length === 0) return [];
     const flights: CampaignFlight[] = filteredCampaigns
@@ -125,27 +128,21 @@ const CampaignsPage = () => {
     return computeCampaignAttribution(flights, filteredSellOut, sellOutBrands.length > 1 ? sellOutBrands : undefined);
   }, [filteredCampaigns, filteredSellOut, sellOutBrands]);
 
-  // Flight calendar
+  // Flight calendar — from server-side aggregation
   const flightData = useMemo(() => {
-    const m: Record<string, { start: string; end: string; platform: string }> = {};
-    platformFiltered.forEach((r) => {
-      const name = r.campaign_name ?? "Unnamed";
-      if (!m[name]) {
-        m[name] = { start: r.flight_start ?? "", end: r.flight_end ?? r.flight_start ?? "", platform: r.platform ?? "" };
-      } else {
-        if (r.flight_start && r.flight_start < m[name].start) m[name].start = r.flight_start;
-        if (r.flight_end && r.flight_end > m[name].end) m[name].end = r.flight_end;
-        if (!m[name].end && r.flight_start && r.flight_start > m[name].end) m[name].end = r.flight_start;
-      }
-    });
-    return Object.entries(m)
-      .filter(([, v]) => v.start)
-      .sort(([, a], [, b]) => a.start.localeCompare(b.start))
-      .slice(0, 20)
-      .map(([name, v]) => ({ name, ...v }));
-  }, [platformFiltered]);
+    if (!flightRows?.length) return [];
+    return flightRows
+      .filter((f) => f.flight_start)
+      .sort((a, b) => a.flight_start.localeCompare(b.flight_start))
+      .map((f) => ({
+        name: f.campaign_name,
+        start: f.flight_start,
+        end: f.flight_end || f.flight_start,
+        platform: f.platform,
+      }));
+  }, [flightRows]);
 
-  // Campaign-level table
+  // Campaign-level table (needs raw data for campaign_name + platform grouping)
   const campaignTable = useMemo(() => {
     const m: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; revenue: number; platform: string }> = {};
     platformFiltered.forEach((r) => {
@@ -243,7 +240,7 @@ const CampaignsPage = () => {
       )}
 
       <div>
-        {loading ? (
+        {(loading || kpisLoading) ? (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
             {[1, 2, 3, 4, 5, 6].map((i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}
           </div>

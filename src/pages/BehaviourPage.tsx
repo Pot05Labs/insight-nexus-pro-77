@@ -6,10 +6,12 @@ import { Sparkles, Loader2, Lightbulb, Users, TrendingUp, DollarSign, ShoppingCa
 import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import KpiCard from "@/components/KpiCard";
-import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useSellOutData, fmtZAR } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
 import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
+import { useSellOutKPIs } from "@/hooks/useSellOutKPIs";
+import { useSellOutAggregation } from "@/hooks/useAggregation";
 import SignalStackInsights from "@/components/SignalStackInsights";
 import { chartCursorStyle, chartGridProps, CHART_ANIMATION_MS, CHART_HEIGHT, axisClassName, renderPieLabel, DONUT_COLORS, CHART_PALETTE, topNWithOther } from "@/lib/chart-utils";
 import PremiumChartTooltip from "@/components/charts/ChartTooltip";
@@ -28,8 +30,8 @@ interface Segment {
 /**
  * Parse AI output into structured segments.
  * The AI returns blocks like:
- *   **Segment Name**: Description with **inner bold** terms…
- *   Activation: Strategy text…
+ *   **Segment Name**: Description with **inner bold** terms...
+ *   Activation: Strategy text...
  *
  * We split on top-level segment headers (line-starting **Name**:) and group
  * all body text into each segment, separating "Activation:" blocks.
@@ -75,42 +77,55 @@ function parseSegmentBlocks(text: string): Segment[] {
 }
 
 const BehaviourPage = () => {
-  const { data, loading } = useSellOutData();
+  // Raw data kept for period comparison, AI summary, and AI segmentation context
+  const { data, loading: rawLoading } = useSellOutData();
   const { data: campaigns } = useCampaignData();
-  const { filterSellOut } = useGlobalFilters();
+  const { filters, filterSellOut } = useGlobalFilters();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [segLoading, setSegLoading] = useState(false);
   const periodType: PeriodType = "MoM";
 
-  // Apply global filters
+  // Server-side aggregated data via RPC hooks
+  const { data: kpis, isLoading: kpisLoading } = useSellOutKPIs(filters);
+  const { data: dowAgg, isLoading: dowLoading } = useSellOutAggregation("day_of_week", filters, 7);
+  const { data: categoryAgg, isLoading: categoryLoading } = useSellOutAggregation("category", filters, 6);
+
+  // Filtered raw data kept for period comparison and AI
   const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
 
-  // Period-over-period comparison
+  // Period-over-period comparison (still uses raw data)
   const comparison = usePeriodComparison(filteredData, campaigns, periodType);
 
-  const hasData = filteredData.length > 0;
+  // Determine overall loading and data availability
+  const isLoading = kpisLoading || dowLoading || categoryLoading;
+  const hasData = (kpis?.row_count ?? 0) > 0;
 
-  // ── Memoised computations (avoid re-processing 10K+ rows on every render) ──
+  // ── Day-of-week chart data from server-side aggregation ──
 
   const dayData = useMemo(() => {
-    const dayMap: Record<string, number> = {};
-    for (const r of filteredData) {
-      if (!r.date) continue;
-      const d = new Date(r.date);
-      if (isNaN(d.getTime())) continue;
-      const day = DAYS[d.getDay()];
-      dayMap[day] = (dayMap[day] ?? 0) + Number(r.revenue ?? 0);
+    // Build a map from DOW number to revenue
+    const dowMap: Record<string, number> = {};
+    for (const row of (dowAgg ?? [])) {
+      dowMap[row.group_key] = row.total_revenue;
     }
-    return DAYS.map((day) => ({ day, revenue: Math.round(dayMap[day] ?? 0) }));
-  }, [filteredData]);
+    // Map 0=Sun through 6=Sat
+    return DAYS.map((day, i) => ({
+      day,
+      revenue: Math.round(dowMap[String(i)] ?? 0),
+    }));
+  }, [dowAgg]);
+
+  // ── Category donut from server-side aggregation ──
 
   const compData = useMemo(() => {
-    const revByCategory = aggregate(filteredData, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-    const sorted = Object.entries(revByCategory)
-      .sort(([, a], [, b]) => b - a)
-      .map(([name, value]) => ({ name, value: Math.round(value) }));
-    return topNWithOther(sorted, 5, "value", "name");
-  }, [filteredData]);
+    const mapped = (categoryAgg ?? []).map((row) => ({
+      name: row.group_key,
+      value: Math.round(row.total_revenue),
+    }));
+    return topNWithOther(mapped, 5, "value", "name");
+  }, [categoryAgg]);
+
+  // ── Date range from filtered raw data (for display) ──
 
   const dateRange = useMemo(() => {
     const dates = filteredData.map((r) => r.date).filter(Boolean).sort();
@@ -120,6 +135,8 @@ const BehaviourPage = () => {
     const last = fmt(dates[dates.length - 1]!);
     return first === last ? first : `${first} \u2013 ${last}`;
   }, [filteredData]);
+
+  // ── Key finding from server-side day-of-week data ──
 
   const keyFinding = useMemo(() => {
     const totalTransactions = dayData.reduce((s, d) => s + d.revenue, 0);
@@ -131,20 +148,12 @@ const BehaviourPage = () => {
     return `Peak trading day: ${dayName} generates ${pct}% of revenue`;
   }, [dayData]);
 
-  // ── KPI values ──
-  const totalRevenue = useMemo(
-    () => filteredData.reduce((s, r) => s + Number(r.revenue ?? 0), 0),
-    [filteredData],
-  );
-  const totalUnits = useMemo(
-    () => filteredData.reduce((s, r) => s + Number(r.units_sold ?? 0), 0),
-    [filteredData],
-  );
-  const avgOrderValue = useMemo(
-    () => (totalUnits > 0 ? totalRevenue / totalUnits : 0),
-    [totalRevenue, totalUnits],
-  );
+  // ── KPI values from server-side RPC ──
+  const totalRevenue = kpis?.total_revenue ?? 0;
+  const totalUnits = kpis?.total_units ?? 0;
+  const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
 
+  // AI summary still uses filtered raw data
   const dataSummary = useMemo(() => buildBehaviourSummary(filteredData)?.summary ?? "", [filteredData]);
 
   // ── AI Segment generation ──
@@ -152,7 +161,7 @@ const BehaviourPage = () => {
   const generateSegments = async () => {
     setSegLoading(true);
     setSegments([]);
-    const summary = `Day of week sales: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Categories: ${compData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${filteredData.length}.`;
+    const summary = `Day of week sales: ${dayData.map((d) => `${d.day}: ${fmtZAR(d.revenue)}`).join(", ")}. Categories: ${compData.map((c) => `${c.name} (${fmtZAR(c.value)})`).join(", ")}. Total rows: ${kpis?.row_count ?? filteredData.length}.`;
     let full = "";
     await streamAiChat({
       messages: [{
@@ -177,8 +186,8 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
 
   // ── Render ──
 
-  if (loading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
-  if (data.length === 0) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
+  if (isLoading && rawLoading) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
+  if (!hasData && !rawLoading && !isLoading && data.length === 0) return <div className="p-8"><EmptyState message="Upload data to see behavioural analytics." /></div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -191,7 +200,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           </p>
           {dateRange && (
             <p className="text-sm text-muted-foreground mt-1">
-              {filteredData.length.toLocaleString()} transactions &middot; {dateRange}
+              {(kpis?.row_count ?? filteredData.length).toLocaleString()} transactions &middot; {dateRange}
             </p>
           )}
         </div>
@@ -205,6 +214,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           icon={DollarSign}
           delta={comparison.revenue.deltaPct}
           periodLabel={comparison.previousLabel}
+          loading={kpisLoading}
         />
         <KpiCard
           label="Units Sold"
@@ -212,6 +222,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           icon={ShoppingCart}
           delta={comparison.units.deltaPct}
           periodLabel={comparison.previousLabel}
+          loading={kpisLoading}
         />
         <KpiCard
           label="Avg Order Value"
@@ -219,6 +230,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
           icon={Tag}
           delta={comparison.aov.deltaPct}
           periodLabel={comparison.previousLabel}
+          loading={kpisLoading}
         />
       </div>
 
@@ -230,7 +242,7 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
         </div>
       )}
 
-      {/* Charts — 2-column grid */}
+      {/* Charts -- 2-column grid */}
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Order Composition */}
         <Card className="glass-card">
@@ -239,16 +251,20 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
             <CardDescription className="text-xs">Revenue share by product category</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
-            <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
-              <PieChart>
-                <Pie data={compData} cx="50%" cy="50%" innerRadius={55} outerRadius={105} dataKey="value" nameKey="name" label={renderPieLabel} labelLine={false} className="text-[10px]" animationDuration={CHART_ANIMATION_MS}>
-                  {compData.map((entry, i) => <Cell key={entry.name} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
-                </Pie>
-                <Tooltip content={<PremiumChartTooltip />} />
-                <text x="50%" y="46%" textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: "10px" }}>Total</text>
-                <text x="50%" y="56%" textAnchor="middle" className="fill-foreground font-bold" style={{ fontSize: "14px" }}>{fmtZAR(compData.reduce((s, c) => s + c.value, 0))}</text>
-              </PieChart>
-            </ResponsiveContainer>
+            {categoryLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
+                <PieChart>
+                  <Pie data={compData} cx="50%" cy="50%" innerRadius={55} outerRadius={105} dataKey="value" nameKey="name" label={renderPieLabel} labelLine={false} className="text-[10px]" animationDuration={CHART_ANIMATION_MS}>
+                    {compData.map((entry, i) => <Cell key={entry.name} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<PremiumChartTooltip />} />
+                  <text x="50%" y="46%" textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: "10px" }}>Total</text>
+                  <text x="50%" y="56%" textAnchor="middle" className="fill-foreground font-bold" style={{ fontSize: "14px" }}>{fmtZAR(compData.reduce((s, c) => s + c.value, 0))}</text>
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
@@ -259,22 +275,26 @@ Format as: **Segment Name**: Description with activation strategy.\n\nData:\n${s
             <CardDescription className="text-xs">Revenue distribution across trading days</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
-              <BarChart data={dayData}>
-                <CartesianGrid {...chartGridProps} />
-                <XAxis dataKey="day" className={axisClassName} />
-                <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
-                <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
-                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
-                  {dayData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {dowLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT.half}>
+                <BarChart data={dayData}>
+                  <CartesianGrid {...chartGridProps} />
+                  <XAxis dataKey="day" className={axisClassName} />
+                  <YAxis className={axisClassName} tickFormatter={(v) => fmtZAR(v)} />
+                  <Tooltip content={<PremiumChartTooltip />} cursor={chartCursorStyle} />
+                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]} animationDuration={CHART_ANIMATION_MS}>
+                    {dayData.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Customer Segments — AI powered */}
+      {/* Customer Segments -- AI powered */}
       <Card className="glass-card border-accent/10">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">

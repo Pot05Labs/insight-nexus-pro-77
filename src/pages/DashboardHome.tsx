@@ -16,7 +16,7 @@ import SignalStackInsights from "@/components/SignalStackInsights";
 import DeltaIndicator from "@/components/DeltaIndicator";
 import KpiCard from "@/components/KpiCard";
 import EmptyState from "@/components/EmptyState";
-import { useSellOutData, fmtZAR, aggregate } from "@/hooks/useSellOutData";
+import { useSellOutData, fmtZAR } from "@/hooks/useSellOutData";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { usePeriodComparison, type PeriodType } from "@/hooks/usePeriodComparison";
 import { useGlobalFilters } from "@/contexts/GlobalFilterContext";
@@ -29,6 +29,12 @@ import PremiumChartTooltip from "@/components/charts/ChartTooltip";
 import ShareOfVoicePanel from "@/components/ShareOfVoicePanel";
 import { useToast } from "@/hooks/use-toast";
 import { buildDashboardSummary } from "@/services/insightsSnapshot";
+
+// Server-side aggregation hooks
+import { useSellOutKPIs } from "@/hooks/useSellOutKPIs";
+import { useCampaignKPIs } from "@/hooks/useCampaignKPIs";
+import { useSellOutAggregation } from "@/hooks/useAggregation";
+import { useCampaignAggregation } from "@/hooks/useAggregation";
 
 // ── Helpers for Key Findings ──
 
@@ -45,6 +51,8 @@ function formatMonthLabel(yyyyMm: string): string {
 }
 
 const DashboardHome = () => {
+  // Raw data hooks — kept for period comparison, attribution, AI summary,
+  // ShareOfVoicePanel, AnomalyDetectionPanel, and data context line
   const { data, loading, refetch } = useSellOutData();
   const { data: campaigns, loading: campaignLoading, refetch: refetchCampaigns } = useCampaignData();
   const { user } = useAuth();
@@ -55,11 +63,20 @@ const DashboardHome = () => {
   const hasCampaigns = campaigns.length > 0;
 
   // Global filter consumption
-  const { filterSellOut, filterCampaigns } = useGlobalFilters();
+  const { filters, filterSellOut, filterCampaigns } = useGlobalFilters();
   const filteredData = useMemo(() => filterSellOut(data), [data, filterSellOut]);
   const filteredCampaigns = useMemo(() => filterCampaigns(campaigns), [campaigns, filterCampaigns]);
 
-  // Period-over-Period comparison (uses filtered data)
+  // ── Server-side aggregation hooks (replace client-side reduce/aggregate) ──
+  const { data: soKpis, isLoading: soKpisLoading } = useSellOutKPIs(filters);
+  const { data: cpKpis, isLoading: cpKpisLoading } = useCampaignKPIs(filters);
+  const { data: brandAgg } = useSellOutAggregation("brand", filters, 8);
+  const { data: categoryAgg } = useSellOutAggregation("category", filters, 8);
+  const { data: monthlyRevenue } = useSellOutAggregation("month", filters, 36);
+  const { data: monthlySpend } = useCampaignAggregation("month", filters, null, 36);
+  const { data: retailerAgg } = useSellOutAggregation("retailer", filters, 20);
+
+  // Period-over-Period comparison (uses filtered raw data — cannot be server-side yet)
   const comparison = usePeriodComparison(filteredData, filteredCampaigns, periodType);
 
   // Auto-refresh dashboard when sell_out_data or campaign_data_v2 changes in real time
@@ -80,11 +97,11 @@ const DashboardHome = () => {
     }
   };
 
-  // --- Sell-out KPIs (use globally filtered data) ---
-  const totalRevenue = filteredData.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
-  const totalUnits = filteredData.reduce((s, r) => s + Number(r.units_sold ?? 0), 0);
+  // --- Sell-out KPIs (server-side via RPC) ---
+  const totalRevenue = soKpis?.total_revenue ?? 0;
+  const totalUnits = soKpis?.total_units ?? 0;
   const avgOrderValue = totalUnits > 0 ? totalRevenue / totalUnits : 0;
-  const uniqueProducts = new Set(filteredData.map((r) => r.product_name_raw).filter(Boolean)).size;
+  const uniqueProducts = soKpis?.distinct_products ?? 0;
 
   const sellOutKpis = [
     { label: "Total Revenue", value: fmtZAR(totalRevenue), icon: DollarSign, delta: comparison.revenue.deltaPct },
@@ -93,22 +110,22 @@ const DashboardHome = () => {
     { label: "Unique Products", value: uniqueProducts.toString(), icon: Package, delta: comparison.products.deltaPct },
   ];
 
-  // --- Campaign KPIs (use globally filtered campaigns) ---
-  const totalSpend = filteredCampaigns.reduce((s, r) => s + Number(r.spend ?? 0), 0);
-  const totalImpressions = filteredCampaigns.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
-  const totalClicks = filteredCampaigns.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
+  // --- Campaign KPIs (server-side via RPC) ---
+  const totalSpend = cpKpis?.total_spend ?? 0;
+  const totalImpressions = cpKpis?.total_impressions ?? 0;
+  const totalClicks = cpKpis?.total_clicks ?? 0;
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
   // Canonical metrics from build spec
-  const totalConversions = filteredCampaigns.reduce((s, r) => s + Number(r.conversions ?? 0), 0);
-  const totalCampaignRevenue = filteredCampaigns.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+  const totalConversions = cpKpis?.total_conversions ?? 0;
+  const totalCampaignRevenue = cpKpis?.total_revenue ?? 0;
   // ROAS uses campaign-attributed revenue, NOT total sell-out revenue.
-  // If no campaign revenue attribution exists, roas stays 0 and displays as "—".
+  // If no campaign revenue attribution exists, roas stays 0 and displays as "---".
   const roas = totalSpend > 0 && totalCampaignRevenue > 0 ? totalCampaignRevenue / totalSpend : 0;
   const eCPM = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
   const cps = totalConversions > 0 ? totalSpend / totalConversions : 0;
 
-  // Campaign attribution — campaign-period vs baseline
+  // Campaign attribution — campaign-period vs baseline (uses raw data)
   // Extract distinct brands from sell-out data so attribution is scoped
   // to matching brands, preventing cross-brand revenue contamination.
   const sellOutBrands = useMemo(() => {
@@ -148,46 +165,45 @@ const DashboardHome = () => {
     { label: "CPS", value: fmtZAR(cps), icon: CircleDollarSign },
   ];
 
-  // Top products by brand — fallback: extract brand from product_name_raw if brand field is null
-  const inferBrand = (r: typeof filteredData[0]): string => {
-    if (r.brand) return r.brand;
-    const name = r.product_name_raw?.trim();
-    if (!name) return r.retailer ?? "Unknown";
-    const firstWord = name.split(/\s+/)[0];
-    return firstWord && firstWord.length > 1 ? firstWord : "Unknown";
-  };
-  const revByBrand = aggregate(filteredData, inferBrand, (r) => Number(r.revenue ?? 0));
-  const brandDataRaw = Object.entries(revByBrand)
-    .sort(([, a], [, b]) => b - a)
-    .map(([brand, revenue]) => ({ brand, revenue: Math.round(revenue) }));
-  const brandData = topNWithOther(brandDataRaw, 6, "revenue", "brand");
+  // Top brands by revenue (server-side aggregation)
+  const brandDataRaw = useMemo(
+    () => (brandAgg ?? []).map((r) => ({ brand: r.group_key, revenue: Math.round(r.total_revenue) })),
+    [brandAgg],
+  );
+  const brandData = useMemo(
+    () => topNWithOther(brandDataRaw, 6, "revenue", "brand"),
+    [brandDataRaw],
+  );
 
-  // Category analysis
-  const revByCategory = aggregate(filteredData, (r) => r.category ?? "Unknown", (r) => Number(r.revenue ?? 0));
-  const categoryDataRaw = Object.entries(revByCategory)
-    .sort(([, a], [, b]) => b - a)
-    .map(([category, revenue]) => ({ category, revenue: Math.round(revenue) }));
-  const categoryData = topNWithOther(categoryDataRaw, 6, "revenue", "category");
+  // Category analysis (server-side aggregation)
+  const categoryDataRaw = useMemo(
+    () => (categoryAgg ?? []).map((r) => ({ category: r.group_key, revenue: Math.round(r.total_revenue) })),
+    [categoryAgg],
+  );
+  const categoryData = useMemo(
+    () => topNWithOther(categoryDataRaw, 6, "revenue", "category"),
+    [categoryDataRaw],
+  );
 
-  // Revenue + Spend time series (monthly, uses filtered data)
-  const monthMapRevenue: Record<string, number> = {};
-  filteredData.forEach((r) => {
-    const m = (r.date ?? "").slice(0, 7);
-    if (m) monthMapRevenue[m] = (monthMapRevenue[m] ?? 0) + Number(r.revenue ?? 0);
-  });
-  const monthMapSpend: Record<string, number> = {};
-  filteredCampaigns.forEach((r) => {
-    const m = (r.flight_start ?? "").slice(0, 7);
-    if (m) monthMapSpend[m] = (monthMapSpend[m] ?? 0) + Number(r.spend ?? 0);
-  });
-  const allMonths = [...new Set([...Object.keys(monthMapRevenue), ...Object.keys(monthMapSpend)])].sort();
-  const timeData = allMonths.map((month) => ({
-    month,
-    revenue: Math.round(monthMapRevenue[month] ?? 0),
-    spend: Math.round(monthMapSpend[month] ?? 0),
-  }));
+  // Revenue + Spend time series (server-side aggregation, combined into unified series)
+  const timeData = useMemo(() => {
+    const revenueMap: Record<string, number> = {};
+    for (const r of monthlyRevenue ?? []) {
+      revenueMap[r.group_key] = Math.round(r.total_revenue);
+    }
+    const spendMap: Record<string, number> = {};
+    for (const r of monthlySpend ?? []) {
+      spendMap[r.group_key] = Math.round(r.total_spend);
+    }
+    const allMonths = [...new Set([...Object.keys(revenueMap), ...Object.keys(spendMap)])].sort();
+    return allMonths.map((month) => ({
+      month,
+      revenue: revenueMap[month] ?? 0,
+      spend: spendMap[month] ?? 0,
+    }));
+  }, [monthlyRevenue, monthlySpend]);
 
-  // ── Data Context Line ──
+  // ── Data Context Line (uses raw data for retailer count, transaction count, date range) ──
   const dataContext = useMemo(() => {
     if (!hasData) return null;
     const retailers = new Set(data.map((r) => r.retailer).filter(Boolean));
@@ -203,20 +219,19 @@ const DashboardHome = () => {
     };
   }, [data, hasData]);
 
-  // ── Auto-Computed Key Findings ──
+  // ── Auto-Computed Key Findings (using server-side aggregation data) ──
   const keyFindings = useMemo<KeyFinding[]>(() => {
-    if (!hasData) return [];
+    if (!hasData && !soKpis) return [];
     const findings: KeyFinding[] = [];
 
     // (a) Top retailer by revenue share
-    const revByRetailer = aggregate(filteredData, (r) => r.retailer ?? "Unknown", (r) => Number(r.revenue ?? 0));
-    const sortedRetailers = Object.entries(revByRetailer).sort(([, a], [, b]) => b - a);
+    const sortedRetailers = retailerAgg ?? [];
     if (sortedRetailers.length > 0 && totalRevenue > 0) {
-      const [topRetailer, topRetailerRev] = sortedRetailers[0];
-      const pct = ((topRetailerRev / totalRevenue) * 100).toFixed(0);
+      const top = sortedRetailers[0];
+      const pct = ((top.total_revenue / totalRevenue) * 100).toFixed(0);
       findings.push({
         icon: Store,
-        text: `${topRetailer} drives ${pct}% of revenue (${fmtZAR(topRetailerRev)})`,
+        text: `${top.group_key} drives ${pct}% of revenue (${fmtZAR(top.total_revenue)})`,
         variant: "neutral",
       });
     }
@@ -232,8 +247,11 @@ const DashboardHome = () => {
       });
     }
 
-    // (c) Revenue trend — last 3 months
-    const revenueMonths = Object.entries(monthMapRevenue).sort(([a], [b]) => a.localeCompare(b));
+    // (c) Revenue trend -- last 3 months (from server-side monthly aggregation)
+    const revenueMonths = (monthlyRevenue ?? [])
+      .map((r) => [r.group_key, r.total_revenue] as [string, number])
+      .sort(([a], [b]) => a.localeCompare(b));
+
     if (revenueMonths.length >= 3) {
       const last3 = revenueMonths.slice(-3);
       let consecutiveUp = 0;
@@ -276,66 +294,64 @@ const DashboardHome = () => {
       });
     }
 
-    // (d) Best growth — per-retailer revenue current vs previous period
-    if (sortedRetailers.length > 1) {
+    // (d) Best growth -- per-retailer revenue current vs previous period
+    // Uses raw filteredData for per-month per-retailer cross-tabulation
+    // (cannot easily be done with a single group-by aggregation)
+    if (sortedRetailers.length > 1 && revenueMonths.length >= 2) {
+      const currentMonth = revenueMonths[revenueMonths.length - 1][0];
+      const previousMonth = revenueMonths[revenueMonths.length - 2][0];
       const currentRetailerRev: Record<string, number> = {};
       const previousRetailerRev: Record<string, number> = {};
 
-      // Use the last 2 sorted months as a proxy for current vs previous
-      if (revenueMonths.length >= 2) {
-        const currentMonth = revenueMonths[revenueMonths.length - 1][0];
-        const previousMonth = revenueMonths[revenueMonths.length - 2][0];
-        for (const r of filteredData) {
-          const m = (r.date ?? "").slice(0, 7);
-          const retailer = r.retailer ?? "Unknown";
-          const rev = Number(r.revenue ?? 0);
-          if (m === currentMonth) currentRetailerRev[retailer] = (currentRetailerRev[retailer] ?? 0) + rev;
-          if (m === previousMonth) previousRetailerRev[retailer] = (previousRetailerRev[retailer] ?? 0) + rev;
-        }
+      for (const r of filteredData) {
+        const m = (r.date ?? "").slice(0, 7);
+        const retailer = r.retailer ?? "Unknown";
+        const rev = Number(r.revenue ?? 0);
+        if (m === currentMonth) currentRetailerRev[retailer] = (currentRetailerRev[retailer] ?? 0) + rev;
+        if (m === previousMonth) previousRetailerRev[retailer] = (previousRetailerRev[retailer] ?? 0) + rev;
+      }
 
-        let bestGrowthName = "";
-        let bestGrowthPct = 0;
-        let worstDeclineName = "";
-        let worstDeclinePct = 0;
+      let bestGrowthName = "";
+      let bestGrowthPct = 0;
+      let worstDeclineName = "";
+      let worstDeclinePct = 0;
 
-        for (const [retailer, curRev] of Object.entries(currentRetailerRev)) {
-          const prevRev = previousRetailerRev[retailer] ?? 0;
-          if (prevRev > 0) {
-            const changePct = ((curRev - prevRev) / prevRev) * 100;
-            if (changePct > bestGrowthPct) {
-              bestGrowthPct = changePct;
-              bestGrowthName = retailer;
-            }
-            if (changePct < worstDeclinePct) {
-              worstDeclinePct = changePct;
-              worstDeclineName = retailer;
-            }
+      for (const [retailer, curRev] of Object.entries(currentRetailerRev)) {
+        const prevRev = previousRetailerRev[retailer] ?? 0;
+        if (prevRev > 0) {
+          const changePct = ((curRev - prevRev) / prevRev) * 100;
+          if (changePct > bestGrowthPct) {
+            bestGrowthPct = changePct;
+            bestGrowthName = retailer;
+          }
+          if (changePct < worstDeclinePct) {
+            worstDeclinePct = changePct;
+            worstDeclineName = retailer;
           }
         }
+      }
 
-        if (bestGrowthName && bestGrowthPct > 5) {
-          findings.push({
-            icon: Rocket,
-            text: `Fastest growth: ${bestGrowthName} up ${bestGrowthPct.toFixed(0)}% month-on-month`,
-            variant: "positive",
-          });
-        }
+      if (bestGrowthName && bestGrowthPct > 5) {
+        findings.push({
+          icon: Rocket,
+          text: `Fastest growth: ${bestGrowthName} up ${bestGrowthPct.toFixed(0)}% month-on-month`,
+          variant: "positive",
+        });
+      }
 
-        // (e) Warning — declining retailer/brand
-        if (worstDeclineName && worstDeclinePct < -5) {
-          findings.push({
-            icon: AlertTriangle,
-            text: `Watch: ${worstDeclineName} down ${Math.abs(worstDeclinePct).toFixed(0)}% month-on-month`,
-            variant: "warning",
-          });
-        }
+      // (e) Warning -- declining retailer/brand
+      if (worstDeclineName && worstDeclinePct < -5) {
+        findings.push({
+          icon: AlertTriangle,
+          text: `Watch: ${worstDeclineName} down ${Math.abs(worstDeclinePct).toFixed(0)}% month-on-month`,
+          variant: "warning",
+        });
       }
     }
 
     return findings.slice(0, 5);
-  }, [filteredData, hasData, totalRevenue, categoryDataRaw, monthMapRevenue]);
+  }, [hasData, soKpis, retailerAgg, totalRevenue, categoryDataRaw, monthlyRevenue, filteredData]);
 
-  // ── PPTX Export Data ──
   // ── Chart Insight Annotations ──
   const revenueSpendAnnotation = useMemo(() => {
     if (totalSpend > 0 && roas > 0) {
@@ -365,7 +381,7 @@ const DashboardHome = () => {
     return null;
   }, [categoryDataRaw, totalRevenue]);
 
-  // Rich multi-section data summary for AI insights
+  // Rich multi-section data summary for AI insights (uses raw data)
   const dataSummary = useMemo(() => {
     return (
       buildDashboardSummary({
@@ -378,7 +394,8 @@ const DashboardHome = () => {
     );
   }, [filteredData, filteredCampaigns, periodType, comparison, attributionResults]);
 
-  const isLoading = loading || campaignLoading;
+  // Loading state: combine raw-data loading with server-side KPI loading
+  const isLoading = loading || campaignLoading || soKpisLoading || cpKpisLoading;
 
   // ── Finding row style helper ──
   const findingRowClass = (variant: KeyFinding["variant"]) => {
