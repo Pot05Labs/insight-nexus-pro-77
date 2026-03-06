@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,28 +8,40 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
 import { GlobalFilterProvider } from "@/contexts/GlobalFilterContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// ── Eagerly-loaded pages (needed at first paint) ──
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import DashboardLayout from "./components/DashboardLayout";
-import DashboardHome from "./pages/DashboardHome";
-import UploadPage from "./pages/UploadPage";
-import PreviewPage from "./pages/PreviewPage";
-import ProductsPage from "./pages/ProductsPage";
-import RetailersPage from "./pages/RetailersPage";
-import GeographyPage from "./pages/GeographyPage";
-import BehaviourPage from "./pages/BehaviourPage";
-import CampaignsPage from "./pages/CampaignsPage";
-import InsightsPage from "./pages/InsightsPage";
-import SettingsPage from "./pages/SettingsPage";
-import PricingPage from "./pages/PricingPage";
-import SubscriptionPaywall from "./components/SubscriptionPaywall";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
-import TermsOfService from "./pages/TermsOfService";
-import CookieConsent from "./components/CookieConsent";
 import NotFound from "./pages/NotFound";
+import DashboardLayout from "./components/DashboardLayout";
+import SubscriptionPaywall from "./components/SubscriptionPaywall";
+import CookieConsent from "./components/CookieConsent";
+
+// ── Lazy-loaded pages (loaded on demand) ──
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const DashboardHome = lazy(() => import("./pages/DashboardHome"));
+const UploadPage = lazy(() => import("./pages/UploadPage"));
+const PreviewPage = lazy(() => import("./pages/PreviewPage"));
+const ProductsPage = lazy(() => import("./pages/ProductsPage"));
+const RetailersPage = lazy(() => import("./pages/RetailersPage"));
+const GeographyPage = lazy(() => import("./pages/GeographyPage"));
+const BehaviourPage = lazy(() => import("./pages/BehaviourPage"));
+const CampaignsPage = lazy(() => import("./pages/CampaignsPage"));
+const InsightsPage = lazy(() => import("./pages/InsightsPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const PricingPage = lazy(() => import("./pages/PricingPage"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+const TermsOfService = lazy(() => import("./pages/TermsOfService"));
+
+/** Fallback shown while a lazy chunk loads */
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-[60vh]">
+    <Skeleton className="h-64 w-full max-w-4xl rounded-xl" />
+  </div>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +63,7 @@ const App = () => (
         <Sonner />
         <CookieConsent />
         <BrowserRouter>
+          <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Landing />} />
@@ -76,6 +90,7 @@ const App = () => (
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </TooltipProvider>
       </NotificationsProvider>

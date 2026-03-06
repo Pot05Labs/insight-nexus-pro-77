@@ -1,4 +1,9 @@
-import * as XLSX from "xlsx";
+// Dynamic import — xlsx (~151KB) is only loaded when a spreadsheet is actually parsed
+let _xlsxModule: typeof import("xlsx") | null = null;
+async function getXLSX() {
+  if (!_xlsxModule) _xlsxModule = await import("xlsx");
+  return _xlsxModule;
+}
 import { supabase } from "@/integrations/supabase/client";
 import {
   SELL_OUT_SCHEMA,
@@ -175,7 +180,8 @@ function parseCSVText(text: string): ParsedFileResult {
   return { headers, rows };
 }
 
-function parseXLSXBuffer(buffer: ArrayBuffer, maxRows?: number): ParsedFileResult {
+async function parseXLSXBuffer(buffer: ArrayBuffer, maxRows?: number): Promise<ParsedFileResult> {
+  const XLSX = await getXLSX();
   // Use sheetRows to limit memory when only a preview is needed
   const opts: XLSX.ParsingOptions = { type: "array", cellDates: true };
   if (maxRows) opts.sheetRows = maxRows + 1; // +1 for header row
@@ -248,7 +254,7 @@ export async function parseFile(file: File): Promise<ParsedFileResult> {
     case "xls": {
       const buffer = await file.arrayBuffer();
       // Only read first 20 rows for preview — full parse happens in uploadOrchestrator
-      return parseXLSXBuffer(buffer, 20);
+      return await parseXLSXBuffer(buffer, 20);
     }
     case "pptx":
       return {
