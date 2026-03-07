@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { generatePreview, getFileExtension, buildFileSchemaReport } from "@/services/clientFileProcessor";
-import { orchestrateUpload, resolveProjectId, type UploadResult } from "@/services/uploadOrchestrator";
+import { resolveProjectId } from "@/services/uploadOrchestrator";
 import { runLearningPipeline } from "@/services/learningPipeline";
 import type { SchemaReport } from "@/lib/canonical-schemas";
 
@@ -262,73 +262,40 @@ const UploadPage = () => {
     }
   };
 
-  const runProcessing = async (fileId: string, uploadId: string, file: File, sourceName: string | null, userId: string, projectId?: string) => {
-    updateFile(fileId, { status: "processing", progress: 5, processingMessage: "Starting..." });
+  const runProcessing = async (fileId: string, uploadId: string, _file: File, _sourceName: string | null, userId: string, _projectId?: string) => {
+    updateFile(fileId, { status: "processing", progress: 10, processingMessage: "Sending to server..." });
 
     try {
-      const result: UploadResult = await orchestrateUpload(
-        file, uploadId, userId, sourceName,
-        (progress) => {
-          updateFile(fileId, {
-            progress: Math.max(5, progress.percent),
-            processingMessage: progress.stage,
-          });
-          // Advance agent indicators
-          const stageIdx = progress.percent < 25 ? 0
-            : progress.percent < 40 ? 1
-            : progress.percent < 90 ? 2
-            : 3;
-          setFiles(prev => prev.map(f => {
-            if (f.id !== fileId) return f;
-            return {
-              ...f,
-              agents: f.agents.map((a, i) => ({
-                ...a,
-                status: i < stageIdx ? "done" as AgentStatus
-                  : i === stageIdx ? "running" as AgentStatus
-                  : "pending" as AgentStatus,
-              })),
-            };
-          }));
-        },
-        projectId,
-      );
-
-      // Mark all agents as done
+      // ── Fire 1: Server-side processing via Edge Function ──
+      // The file is already in Supabase Storage. We just tell the
+      // Edge Function to pick it up, parse it, and insert rows.
+      // The browser never touches the raw data.
       setFiles(prev => prev.map(f =>
         f.id === fileId
-          ? { ...f, agents: f.agents.map(a => ({ ...a, status: "done" as AgentStatus })) }
+          ? { ...f, agents: f.agents.map((a, i) => ({ ...a, status: i === 0 ? "running" as AgentStatus : "pending" as AgentStatus })) }
           : f
       ));
 
-      if (result.success) {
-        const { audit } = result;
-        const typeLabel = result.dataType === "mixed" ? "Sell-out + Campaign"
-          : result.dataType === "campaign" ? "Campaign" : "Sell-out";
-        const hasFailures = audit.failedInserts > 0;
-        updateFile(fileId, {
-          status: "done",
-          progress: 100,
-          processingMessage: "Done!",
-          resultRowCount: audit.successfulInserts,
-          resultDataType: typeLabel,
-          resultWarning: hasFailures
-            ? `${audit.failedInserts} of ${audit.successfulInserts + audit.failedInserts} rows failed to insert.`
-            : undefined,
-        });
-        let desc = `${audit.successfulInserts.toLocaleString()} rows inserted as ${typeLabel} data.`;
-        if (hasFailures) desc += ` ${audit.failedInserts} rows failed.`;
-        if (result.mapping.source === "llm") desc += " (AI-assisted mapping)";
-        console.log(`[upload] Mapping used:`, result.mapping.fieldMap);
-        console.log(`[upload] Unmapped columns:`, result.mapping.unmappedColumns);
-        toast({ title: hasFailures ? "File processed with warnings" : "File processed", description: desc });
-      } else {
-        updateFile(fileId, {
-          status: "error",
-          error: result.error || "Processing failed",
-          processingMessage: undefined,
-        });
+      const { error: fnError } = await supabase.functions.invoke("process-upload", {
+        body: { uploadId },
+      });
+
+      if (fnError) {
+        console.error("[upload] Edge Function invocation failed:", fnError.message);
+        // Don't bail out — the function may have started processing.
+        // Fall through to polling which will catch the final status.
       }
+
+      updateFile(fileId, { progress: 30, processingMessage: "Server processing..." });
+      setFiles(prev => prev.map(f =>
+        f.id === fileId
+          ? { ...f, agents: f.agents.map((a, i) => ({ ...a, status: i <= 1 ? "running" as AgentStatus : "pending" as AgentStatus })) }
+          : f
+      ));
+
+      // Poll for completion — the Edge Function updates data_uploads status
+      await pollUploadStatus(fileId, uploadId, userId);
+
     } catch (err: any) {
       updateFile(fileId, {
         status: "error",
@@ -340,18 +307,22 @@ const UploadPage = () => {
     // Both legacy raw-data hooks AND new server-side RPC hooks must be
     // invalidated — otherwise the dashboard may show stale KPIs, counts,
     // and date ranges after an upload.
-    queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
-    queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
-    queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
-    queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
-    queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-    queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
-    queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
-    queryClient.invalidateQueries({ queryKey: ["top-products"] });
-    queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
-    queryClient.invalidateQueries({ queryKey: ["filter-options"] });
-    queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
+    invalidateAllDashboardCaches();
     fetchUploads();
+  };
+
+  /** Invalidate every dashboard query key in one call */
+  const invalidateAllDashboardCaches = () => {
+    const keys = [
+      "sell-out-data", "campaign-data", "computed-metrics",
+      "sell-out-kpis", "campaign-kpis",
+      "sell-out-agg", "campaign-agg",
+      "top-products", "campaign-flights",
+      "filter-options", "daily-revenue",
+    ];
+    for (const k of keys) {
+      queryClient.invalidateQueries({ queryKey: [k] });
+    }
   };
 
   const uploadFile = async (uf: UploadFile, projectId?: string) => {
@@ -524,18 +495,7 @@ const UploadPage = () => {
       }
 
       toast({ title: "File deleted", description: `${deleteTarget.file_name} and all related data removed.` });
-      // Invalidate ALL caches after deletion
-      queryClient.invalidateQueries({ queryKey: ["sell-out-data"] });
-      queryClient.invalidateQueries({ queryKey: ["campaign-data"] });
-      queryClient.invalidateQueries({ queryKey: ["computed-metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["sell-out-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["campaign-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["sell-out-agg"] });
-      queryClient.invalidateQueries({ queryKey: ["campaign-agg"] });
-      queryClient.invalidateQueries({ queryKey: ["top-products"] });
-      queryClient.invalidateQueries({ queryKey: ["campaign-flights"] });
-      queryClient.invalidateQueries({ queryKey: ["filter-options"] });
-      queryClient.invalidateQueries({ queryKey: ["daily-revenue"] });
+      invalidateAllDashboardCaches();
     } catch (err) {
       console.error("[UploadPage] Delete failed:", err);
       toast({ title: "Delete failed", description: "Could not delete file. Please try again.", variant: "destructive" });

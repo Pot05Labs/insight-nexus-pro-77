@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -11,10 +12,20 @@ type UploadRow = {
   created_at: string;
 };
 
+/** All dashboard query keys that must be refreshed when new data lands */
+const DASHBOARD_QUERY_KEYS = [
+  "sell-out-data", "campaign-data", "computed-metrics",
+  "sell-out-kpis", "campaign-kpis",
+  "sell-out-agg", "campaign-agg",
+  "top-products", "campaign-flights",
+  "filter-options", "daily-revenue",
+];
+
 export function useRealtimeUploads(userId: string | undefined) {
   const [uploads, setUploads] = useState<UploadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const fetchUploads = useCallback(async () => {
     if (!userId) return;
@@ -56,12 +67,18 @@ export function useRealtimeUploads(userId: string | undefined) {
             setUploads((prev) =>
               prev.map((u) => (u.id === newRow.id ? { ...u, ...newRow } : u))
             );
-            // Toast on status changes
+
+            // ── Fire 2 + 3: When upload completes, invalidate ALL dashboard
+            // caches so the user sees new data without a manual refresh. ──
             if (newRow.status === "ready") {
               toast({
                 title: "Upload complete",
                 description: `"${newRow.file_name}" has finished processing.`,
               });
+              // Force refetch of every dashboard query
+              for (const key of DASHBOARD_QUERY_KEYS) {
+                queryClient.invalidateQueries({ queryKey: [key] });
+              }
             } else if (newRow.status === "error") {
               toast({
                 title: "Upload failed",
@@ -80,7 +97,7 @@ export function useRealtimeUploads(userId: string | undefined) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, toast]);
+  }, [userId, toast, queryClient]);
 
   return { uploads, loading, refetch: fetchUploads };
 }

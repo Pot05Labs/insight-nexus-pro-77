@@ -596,6 +596,33 @@ Deno.serve(async (req) => {
 
     log.info("Processing upload", { uploadId, fileName: upload.file_name, fileType: upload.file_type });
 
+    // ── Fire 4: Duplicate file check ──
+    // Reject if another completed upload with the same name + size already
+    // exists for this user (or project when available).
+    const dupeFilter = supabase
+      .from("data_uploads")
+      .select("id")
+      .eq("file_name", upload.file_name)
+      .eq("file_size", upload.file_size)
+      .eq("status", "ready")
+      .neq("id", uploadId);
+
+    if (upload.project_id) {
+      dupeFilter.eq("project_id", upload.project_id);
+    } else {
+      dupeFilter.eq("user_id", upload.user_id);
+    }
+
+    const { data: dupes } = await dupeFilter;
+    if (dupes && dupes.length > 0) {
+      await updateStatus("error", `Duplicate file: "${upload.file_name}" has already been processed.`);
+      log.warn("Duplicate file rejected", { uploadId, fileName: upload.file_name, existingId: dupes[0].id });
+      return new Response(
+        JSON.stringify({ error: "Duplicate file already processed", existingUploadId: dupes[0].id }),
+        { status: 409, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
+      );
+    }
+
     // ── 2. Download file ──
     await updateStatus("processing", "Parsing file...");
     const { data: fileBlob, error: dlErr } = await supabase.storage
