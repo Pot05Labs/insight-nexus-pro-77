@@ -287,6 +287,7 @@ export type Database = {
           date_range_end: string | null
           date_range_start: string | null
           error_message: string | null
+          file_hash: string | null
           file_name: string
           file_size: number
           file_type: string
@@ -308,6 +309,7 @@ export type Database = {
           date_range_end?: string | null
           date_range_start?: string | null
           error_message?: string | null
+          file_hash?: string | null
           file_name: string
           file_size?: number
           file_type: string
@@ -329,6 +331,7 @@ export type Database = {
           date_range_end?: string | null
           date_range_start?: string | null
           error_message?: string | null
+          file_hash?: string | null
           file_name?: string
           file_size?: number
           file_type?: string
