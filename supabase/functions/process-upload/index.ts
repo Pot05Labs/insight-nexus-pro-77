@@ -654,27 +654,27 @@ Deno.serve(async (req) => {
 
     try {
       if (fileType === "csv") {
-        const text = await fileBlob.text();
+        const text = await parsableBlob.text();
         const result = parseCSV(text);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "tsv" || fileType === "tab" || fileType === "txt") {
-        const text = await fileBlob.text();
+        const text = await parsableBlob.text();
         const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
         const separator = fileType === "tsv" || fileType === "tab" ? "\t" : detectSeparator(firstLine);
         const result = parseCSV(text, separator);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "xlsx" || fileType === "xls") {
-        const result = await parseXLSX(fileBlob);
+        const result = await parseXLSX(parsableBlob);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "pptx") {
-        const result = await parsePPTX(fileBlob);
+        const result = await parsePPTX(parsableBlob);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "json") {
-        const text = await fileBlob.text();
+        const text = await parsableBlob.text();
         const parsed = JSON.parse(text);
         const arr = Array.isArray(parsed) ? parsed
           : (typeof parsed === "object" && parsed !== null)
