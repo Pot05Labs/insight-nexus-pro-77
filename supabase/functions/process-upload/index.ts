@@ -596,34 +596,7 @@ Deno.serve(async (req) => {
 
     log.info("Processing upload", { uploadId, fileName: upload.file_name, fileType: upload.file_type });
 
-    // ── Fire 4: Duplicate file check ──
-    // Reject if another completed upload with the same name + size already
-    // exists for this user (or project when available).
-    const dupeFilter = supabase
-      .from("data_uploads")
-      .select("id")
-      .eq("file_name", upload.file_name)
-      .eq("file_size", upload.file_size)
-      .eq("status", "ready")
-      .neq("id", uploadId);
-
-    if (upload.project_id) {
-      dupeFilter.eq("project_id", upload.project_id);
-    } else {
-      dupeFilter.eq("user_id", upload.user_id);
-    }
-
-    const { data: dupes } = await dupeFilter;
-    if (dupes && dupes.length > 0) {
-      await updateStatus("error", `Duplicate file: "${upload.file_name}" has already been processed.`);
-      log.warn("Duplicate file rejected", { uploadId, fileName: upload.file_name, existingId: dupes[0].id });
-      return new Response(
-        JSON.stringify({ error: "Duplicate file already processed", existingUploadId: dupes[0].id }),
-        { status: 409, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
-      );
-    }
-
-    // ── 2. Download file ──
+    // ── 1b. Download file early for SHA-256 hashing ──
     await updateStatus("processing", "Parsing file...");
     const { data: fileBlob, error: dlErr } = await supabase.storage
       .from("uploads")
@@ -638,34 +611,70 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── 3. Parse file ──
+    // ── Fire 4: SHA-256 content hash deduplication ──
+    const fileBuffer = await fileBlob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", fileBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const fileHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+    // Store hash on the upload record
+    await supabase.from("data_uploads").update({ file_hash: fileHash }).eq("id", uploadId);
+
+    // Check for existing upload with same hash
+    const dupeFilter = supabase
+      .from("data_uploads")
+      .select("id")
+      .eq("file_hash", fileHash)
+      .eq("status", "ready")
+      .neq("id", uploadId);
+
+    if (upload.project_id) {
+      dupeFilter.eq("project_id", upload.project_id);
+    } else {
+      dupeFilter.eq("user_id", upload.user_id);
+    }
+
+    const { data: dupes } = await dupeFilter;
+    if (dupes && dupes.length > 0) {
+      await updateStatus("error", `Duplicate file: content matches an already-processed upload.`);
+      log.warn("Duplicate file rejected (SHA-256)", { uploadId, fileHash, existingId: dupes[0].id });
+      return new Response(
+        JSON.stringify({ error: "Duplicate file already processed", existingUploadId: dupes[0].id }),
+        { status: 409, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
+      );
+    }
+
+
+    // ── 3. Parse file (already downloaded above for hashing) ──
+    // Re-create blob from the arrayBuffer we already have
+    const parsableBlob = new Blob([fileBuffer]);
     let headers: string[] = [];
     let jsonRows: Record<string, unknown>[] = [];
     const fileType = (upload.file_type ?? "").toLowerCase();
 
     try {
       if (fileType === "csv") {
-        const text = await fileBlob.text();
+        const text = await parsableBlob.text();
         const result = parseCSV(text);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "tsv" || fileType === "tab" || fileType === "txt") {
-        const text = await fileBlob.text();
+        const text = await parsableBlob.text();
         const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
         const separator = fileType === "tsv" || fileType === "tab" ? "\t" : detectSeparator(firstLine);
         const result = parseCSV(text, separator);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "xlsx" || fileType === "xls") {
-        const result = await parseXLSX(fileBlob);
+        const result = await parseXLSX(parsableBlob);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "pptx") {
-        const result = await parsePPTX(fileBlob);
+        const result = await parsePPTX(parsableBlob);
         headers = result.headers;
         jsonRows = result.rows;
       } else if (fileType === "json") {
-        const text = await fileBlob.text();
+        const text = await parsableBlob.text();
         const parsed = JSON.parse(text);
         const arr = Array.isArray(parsed) ? parsed
           : (typeof parsed === "object" && parsed !== null)
