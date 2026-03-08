@@ -596,14 +596,35 @@ Deno.serve(async (req) => {
 
     log.info("Processing upload", { uploadId, fileName: upload.file_name, fileType: upload.file_type });
 
-    // ── Fire 4: Duplicate file check ──
-    // Reject if another completed upload with the same name + size already
-    // exists for this user (or project when available).
+    // ── 1b. Download file early for SHA-256 hashing ──
+    await updateStatus("processing", "Parsing file...");
+    const { data: fileBlob, error: dlErr } = await supabase.storage
+      .from("uploads")
+      .download(upload.storage_path);
+
+    if (dlErr || !fileBlob) {
+      await updateStatus("error", "Failed to download file from storage");
+      log.error("Download failed", { uploadId, error: dlErr?.message });
+      return new Response(
+        JSON.stringify({ error: "Download failed" }),
+        { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Fire 4: SHA-256 content hash deduplication ──
+    const fileBuffer = await fileBlob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", fileBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const fileHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+    // Store hash on the upload record
+    await supabase.from("data_uploads").update({ file_hash: fileHash }).eq("id", uploadId);
+
+    // Check for existing upload with same hash
     const dupeFilter = supabase
       .from("data_uploads")
       .select("id")
-      .eq("file_name", upload.file_name)
-      .eq("file_size", upload.file_size)
+      .eq("file_hash", fileHash)
       .eq("status", "ready")
       .neq("id", uploadId);
 
@@ -615,8 +636,8 @@ Deno.serve(async (req) => {
 
     const { data: dupes } = await dupeFilter;
     if (dupes && dupes.length > 0) {
-      await updateStatus("error", `Duplicate file: "${upload.file_name}" has already been processed.`);
-      log.warn("Duplicate file rejected", { uploadId, fileName: upload.file_name, existingId: dupes[0].id });
+      await updateStatus("error", `Duplicate file: content matches an already-processed upload.`);
+      log.warn("Duplicate file rejected (SHA-256)", { uploadId, fileHash, existingId: dupes[0].id });
       return new Response(
         JSON.stringify({ error: "Duplicate file already processed", existingUploadId: dupes[0].id }),
         { status: 409, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
