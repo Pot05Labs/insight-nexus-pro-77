@@ -85,6 +85,24 @@ Deno.serve(async (req) => {
 
     log.info(`Action: ${action}`, { userId });
 
+    // ── Guard: check if org tables exist ──
+    // The org_tenancy migration may not have been applied yet.
+    // Rather than crashing, return empty results so the frontend
+    // falls back to personal workspace mode.
+    const { error: tableCheck } = await supabase
+      .from("org_members")
+      .select("id", { count: "exact", head: true })
+      .limit(0);
+
+    if (tableCheck && tableCheck.message?.includes("does not exist")) {
+      log.warn("org_members table not found — migration not applied", { error: tableCheck.message });
+      // Return appropriate empty/noop responses per action
+      if (action === "list_orgs") return respond({ orgs: [] });
+      if (action === "list_members") return respond({ members: [] });
+      if (action === "list_invitations") return respond({ invitations: [] });
+      return errorResp("Organization features not yet configured. Migration pending.", 503);
+    }
+
     switch (action) {
 
       /* ──────────────────────────────────────────────── */

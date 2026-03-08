@@ -1,65 +1,65 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { corsHeaders, handleCors } from "../_shared/cors.ts";
+import { authenticateRequest } from "../_shared/auth.ts";
 
-const ALLOWED_ORIGINS = [
-  "https://signalstack.africa",
-  "https://www.signalstack.africa",
-];
+/**
+ * Check Subscription Edge Function
+ *
+ * Verifies the authenticated user's Stripe subscription status.
+ * Returns { subscribed, product_id, subscription_end }.
+ *
+ * Gracefully returns { subscribed: false } when:
+ *   - STRIPE_SECRET_KEY is not configured
+ *   - User has no Stripe customer record
+ *   - No active subscription exists
+ */
 
-function getAllowedOrigin(req: Request): string {
-  const origin = req.headers.get("origin") ?? "";
-  if (
-    ALLOWED_ORIGINS.includes(origin) ||
-    origin.includes(".lovable.app") ||
-    origin.includes(".lovableproject.com") ||
-    origin.startsWith("http://localhost")
-  ) {
-    return origin;
-  }
-  return ALLOWED_ORIGINS[0];
-}
+Deno.serve(async (req) => {
+  const preflightResp = handleCors(req);
+  if (preflightResp) return preflightResp;
 
-function corsHeaders(req: Request) {
-  return {
-    "Access-Control-Allow-Origin": getAllowedOrigin(req),
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
-}
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) });
-  }
-
-  const supabaseClient = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    { auth: { persistSession: false } }
-  );
+  const respond = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
 
   try {
+    // ── Auth ──
+    const auth = await authenticateRequest(req);
+    if (!auth) {
+      return respond({ error: "Authorization required" }, 401);
+    }
+
+    // ── Stripe key check ──
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    if (!stripeKey) {
+      console.warn("[check-subscription] STRIPE_SECRET_KEY not set — returning unsubscribed");
+      return respond({ subscribed: false });
+    }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("No authorization header");
+    // ── Look up user email ──
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      { auth: { persistSession: false } },
+    );
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
-    if (userError) throw new Error(`Auth error: ${userError.message}`);
-    const user = userData.user;
-    if (!user?.email) throw new Error("User not authenticated");
+    const token = (req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "").slice(7);
+    const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+    if (userError || !userData?.user?.email) {
+      return respond({ subscribed: false });
+    }
 
+    const email = userData.user.email;
+
+    // ── Stripe lookup ──
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    const customers = await stripe.customers.list({ email, limit: 1 });
 
     if (customers.data.length === 0) {
-      return new Response(JSON.stringify({ subscribed: false }), {
-        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-        status: 200,
-      });
+      return respond({ subscribed: false });
     }
 
     const customerId = customers.data[0].id;
@@ -79,18 +79,15 @@ serve(async (req) => {
       productId = subscription.items.data[0].price.product;
     }
 
-    return new Response(JSON.stringify({
+    return respond({
       subscribed: hasActiveSub,
       product_id: productId,
       subscription_end: subscriptionEnd,
-    }), {
-      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-      status: 200,
     });
   } catch (error: unknown) {
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
-      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-      status: 500,
-    });
+    console.error("[check-subscription] Error:", error);
+    return respond({
+      error: error instanceof Error ? error.message : "Unknown error",
+    }, 500);
   }
 });
