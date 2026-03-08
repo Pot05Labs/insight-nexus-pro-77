@@ -644,22 +644,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── 2. Download file ──
-    await updateStatus("processing", "Parsing file...");
-    const { data: fileBlob, error: dlErr } = await supabase.storage
-      .from("uploads")
-      .download(upload.storage_path);
 
-    if (dlErr || !fileBlob) {
-      await updateStatus("error", "Failed to download file from storage");
-      log.error("Download failed", { uploadId, error: dlErr?.message });
-      return new Response(
-        JSON.stringify({ error: "Download failed" }),
-        { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
-      );
-    }
-
-    // ── 3. Parse file ──
+    // ── 3. Parse file (already downloaded above for hashing) ──
+    // Re-create blob from the arrayBuffer we already have
+    const parsableBlob = new Blob([fileBuffer]);
     let headers: string[] = [];
     let jsonRows: Record<string, unknown>[] = [];
     const fileType = (upload.file_type ?? "").toLowerCase();
