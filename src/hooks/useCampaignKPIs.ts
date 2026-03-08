@@ -20,9 +20,9 @@ export function useCampaignKPIs(filters: GlobalFilters, platform?: string | null
     queryFn: async (): Promise<CampaignKPIs> => {
       const { data, error } = await supabase.rpc("get_campaign_kpis", {
         p_project_id: projectId!,
-        p_platform: platform ?? null,
-        p_date_from: filters.dateRange.from ?? null,
-        p_date_to: filters.dateRange.to ?? null,
+        p_platform: platform ?? undefined,
+        p_date_from: filters.dateRange.from ?? undefined,
+        p_date_to: filters.dateRange.to ?? undefined,
       });
 
       if (error) throw error;

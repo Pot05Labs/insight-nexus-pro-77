@@ -20,11 +20,11 @@ export function useSellOutKPIs(filters: GlobalFilters) {
     queryFn: async (): Promise<SellOutKPIs> => {
       const { data, error } = await supabase.rpc("get_sell_out_kpis", {
         p_project_id: projectId!,
-        p_brand: filters.brand ?? null,
-        p_retailer: filters.retailer ?? null,
-        p_province: filters.province ?? null,
-        p_date_from: filters.dateRange.from ?? null,
-        p_date_to: filters.dateRange.to ?? null,
+        p_brand: filters.brand ?? undefined,
+        p_retailer: filters.retailer ?? undefined,
+        p_province: filters.province ?? undefined,
+        p_date_from: filters.dateRange.from ?? undefined,
+        p_date_to: filters.dateRange.to ?? undefined,
       });
 
       if (error) throw error;

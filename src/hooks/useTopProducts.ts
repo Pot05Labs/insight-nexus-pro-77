@@ -19,11 +19,11 @@ export function useTopProducts(filters: GlobalFilters, limit = 10) {
     queryFn: async (): Promise<TopProduct[]> => {
       const { data, error } = await supabase.rpc("get_top_products", {
         p_project_id: projectId!,
-        p_brand: filters.brand ?? null,
-        p_retailer: filters.retailer ?? null,
-        p_province: filters.province ?? null,
-        p_date_from: filters.dateRange.from ?? null,
-        p_date_to: filters.dateRange.to ?? null,
+        p_brand: filters.brand ?? undefined,
+        p_retailer: filters.retailer ?? undefined,
+        p_province: filters.province ?? undefined,
+        p_date_from: filters.dateRange.from ?? undefined,
+        p_date_to: filters.dateRange.to ?? undefined,
         p_limit: limit,
       });
 
